@@ -57,6 +57,6 @@ ClipCargo 是 ClipCargo 桌面端的配套浏览器扩展。
 1. 上传 `reports/package/ClipCargo-extension-0.1.4-store.zip`，不要上传本地测试包、项目源码目录或 NSIS 安装包。商店包会自动移除仅供本地开发使用的 manifest `key` 字段。
 2. ZIP 根目录必须直接包含 `manifest.json`。
 3. 上传后核对 Developer Dashboard 显示的扩展 ID 是否为 `maenmnckhgckmkcaijmpeghkcfhchiha`。
-4. 桌面端 `0.1.1` 发布构建已同时接受商店 ID 与本地测试 ID；正式上架前仍应从商店安装一次，确认 Native Messaging 已连接。
+4. 桌面端 `0.1.2` 发布构建已同时接受商店 ID 与本地测试 ID；正式上架前仍应从商店安装一次，确认 Native Messaging 已连接。
 5. 在 Privacy 标签页填写以上声明，并填入公开的 HTTPS 隐私政策 URL。
 6. 建议选择“审核通过后手动发布”，先在商店安装版验证 Native Messaging、工具栏收集、页面入口与离线暂存，再正式发布。

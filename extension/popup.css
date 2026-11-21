@@ -19,7 +19,7 @@ body { width: 220px; margin: 0; background: var(--surface); }
 .brand { display: flex; align-items: center; gap: 7px; font-size: 12px; letter-spacing: -.01em; }
 .mark { width: 20px; height: 20px; border-radius: 6px; }
 .state-label { padding: 4px 8px; border-radius: 999px; background: #f0f1f5; color: #777e8c; font-size: 10px; line-height: 1.2; }
-.state-label.available { background: var(--accent-soft); color: #4c5ac5; }
+.state-label.available { width: 8px; height: 8px; padding: 0; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); color: transparent; font-size: 0; }
 .state-label.ready { background: #e8f5ef; color: #26745a; }
 .state-label.queued { background: #fff4de; color: #8a5a10; }
 .state-label.error { background: #fdecef; color: #a93343; }
@@ -43,6 +43,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .message.queued { color: #8a5a10; }
 .message.error { color: #a93343; }
 .site-control { margin-top: 8px; padding: 7px 0 0; border-top: 1px solid var(--border); }
+.site-control[hidden] { display: none; }
 .site-control-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .site-control-title { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
 .site-control-head strong { font-size: 10px; }

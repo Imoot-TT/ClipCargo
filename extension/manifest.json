@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ClipCargo",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAm/aSpjmxZ6aqoK576V9e3q4FH2POGrh9oKavNBqmv8C9SOBm1rwsqv6W/YBQ10naTgT4VV5tsjmHY640++10ZLnFjafQfU4xL5SVl9yaLZgMJCKQt1jrm+YPh6j9a9+QfZdMvWLh4/cOATTW0NOerGd7xrJUM1xpHDjNa9EQJyDXWEA8ZMdKTEMgOsvXTykiy8w9zwMuUUD1x3obaXHp4dVwC42uYQPhYL1RCfc2NQvWEgCBh7/vYJPW+xqPVZMdVgLVp7k1pd6+vJWKWxlVG2UCYrOte+Kt2nIwaQL4rwSlS+TePxhbRuThsgDgsWiXFBqxtZTr62D9r+K1mAdhqQIDAQAB",
   "description": "把你主动选择的视频页面收进 ClipCargo。",
   "icons": { "32": "icons/32.png", "64": "icons/64.png", "128": "icons/128.png" },

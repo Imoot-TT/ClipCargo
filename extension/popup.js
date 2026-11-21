@@ -66,8 +66,10 @@ function showInjectionState(result) {
     siteDetail.className = 'site-detail ok';
     siteDetail.hidden = true;
     injectPage.hidden = true;
+    siteControl.hidden = true;
     return;
   }
+  siteControl.hidden = false;
   siteState.textContent = result.reason === 'blocked' ? '注入受阻' : '等待页面刷新';
   siteDetail.textContent = result.reason === 'blocked'
     ? '当前页暂时拒绝脚本注入，请刷新页面后重试。'
@@ -135,6 +137,7 @@ siteToggle.addEventListener('click', async () => {
     if (enabling) {
       showInjectionState(await injectCurrentPage());
     } else {
+      siteControl.hidden = false;
       siteState.textContent = '刷新页面后停用';
       siteDetail.textContent = '当前页面刷新后，ClipCargo 浮标会消失。';
       siteDetail.className = 'site-detail';

@@ -4,7 +4,7 @@
   <p>A Windows desktop app for collecting web video pages you choose, then organizing, downloading, processing, and playing media locally.</p>
   <p><strong>English</strong> · <a href="README.zh-CN.md">中文</a></p>
   <p>
-    <img alt="Desktop version" src="https://img.shields.io/badge/desktop-0.1.1-5364d9">
+    <img alt="Desktop version" src="https://img.shields.io/badge/desktop-0.1.2-5364d9">
     <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-0078d4">
     <img alt="Browser extension" src="https://img.shields.io/badge/browser-Chrome-4285f4">
   </p>
@@ -14,7 +14,7 @@
 
 ## Download
 
-[Download ClipCargo 0.1.1 for Windows x64](https://github.com/Imoot-TT/ClipCargo/releases/tag/v0.1.1)
+[Download ClipCargo 0.1.2 for Windows x64](https://github.com/Imoot-TT/ClipCargo/releases/tag/v0.1.2)
 
 The Chrome extension will be installed from the Chrome Web Store after its review is complete. The ZIP in the release is the package submitted to the store, not a normal user installation file.
 
