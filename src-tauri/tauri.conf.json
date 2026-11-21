@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ClipCargo",
+  "version": "0.1.1",
+  "identifier": "net.clipcargo.desktop",
+  "build": {
+    "beforeDevCommand": {
+      "script": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-native-host.ps1 -Profile debug",
+      "cwd": "..",
+      "wait": true
+    },
+    "beforeBuildCommand": {
+      "script": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-native-host.ps1 -Profile release",
+      "cwd": ".."
+    },
+    "frontendDist": "../src",
+    "removeUnusedCommands": true
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "ClipCargo",
+        "width": 920,
+        "height": 600,
+        "minWidth": 780,
+        "minHeight": 500,
+        "resizable": true,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: https:; media-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPLOCALDATA/downloads/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "resources": {
+      "../extension/": "browser-extension/"
+    },
+    "externalBin": ["binaries/clipcargo-native-host"],
+    "targets": ["nsis"],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "languages": ["SimpChinese"],
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

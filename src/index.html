@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClipCargo</title>
+  <link rel="icon" href="./assets/clipcargo-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css?v=20261120-7">
+  <script src="./link-utils.js?v=20261109-4" defer></script>
+  <script src="./app.js?v=20261120-5" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="workspace">
+      <aside class="sidebar">
+        <nav aria-label="主导航">
+          <button class="nav-item active" data-view="inbox" aria-label="收集箱"><span class="nav-icon" style="--icon:url('./assets/icons/inbox.svg')" aria-hidden="true"></span><span class="nav-label">收集</span><span id="inbox-count" class="nav-count">0</span></button>
+          <button class="nav-item" data-view="tasks" aria-label="任务"><span class="nav-icon" style="--icon:url('./assets/icons/list-checks.svg')" aria-hidden="true"></span><span class="nav-label">任务</span><span id="task-count" class="nav-count">0</span></button>
+          <button class="nav-item" data-view="library" aria-label="素材库"><span class="nav-icon" style="--icon:url('./assets/icons/film.svg')" aria-hidden="true"></span><span class="nav-label">素材</span></button>
+          <button class="nav-item" data-view="browser" aria-label="设置"><span class="nav-icon" style="--icon:url('./assets/icons/settings.svg')" aria-hidden="true"></span><span class="nav-label">设置</span></button>
+        </nav>
+      </aside>
+      <main id="main" tabindex="-1"></main>
+    </div>
+  </div>
+  <div id="dialog-backdrop" class="dialog-backdrop" hidden>
+    <section class="dialog add-link-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <div class="dialog-header"><h2 id="dialog-title">添加链接</h2><button id="dialog-close" class="icon-button" aria-label="关闭" title="关闭"><span class="ui-icon" style="--icon:url('./assets/icons/x.svg')" aria-hidden="true"></span></button></div>
+      <label class="field-label" for="url-input">分享文案或页面链接</label>
+      <textarea id="url-input" rows="4" aria-describedby="url-summary form-error" placeholder="粘贴分享文案或视频页面链接…"></textarea>
+      <div id="url-summary" class="input-summary" aria-live="polite">自动提取 HTTP(S) 链接，最多 100 条</div>
+      <label class="field-label" for="project-input">项目</label>
+      <div id="project-combobox" class="project-combobox">
+        <div class="project-combobox-field">
+          <input id="project-input" class="field-control" type="text" maxlength="50" value="未分类" placeholder="选择已有项目或输入新项目" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="project-options">
+          <button id="project-toggle" class="project-combobox-toggle" type="button" tabindex="-1" aria-label="展开项目列表"><span class="ui-icon" style="--icon:url('./assets/icons/chevron-right.svg')" aria-hidden="true"></span></button>
+        </div>
+        <div id="project-options" class="project-combobox-menu" role="listbox" hidden></div>
+      </div>
+      <p id="form-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button id="dialog-cancel" class="button">取消</button><button id="import-button" class="button primary">加入收集箱</button></div>
+    </section>
+  </div>
+  <div id="project-backdrop" class="dialog-backdrop" hidden>
+    <section class="dialog project-dialog" role="dialog" aria-modal="true" aria-labelledby="project-dialog-title">
+      <div class="dialog-header"><h2 id="project-dialog-title">项目管理</h2><button id="project-close" class="icon-button" aria-label="关闭项目管理" title="关闭"><span class="ui-icon" style="--icon:url('./assets/icons/x.svg')" aria-hidden="true"></span></button></div>
+      <form id="project-create-form" class="project-create-form">
+        <label class="field-label" for="new-project-name">新项目</label>
+        <div class="inline-create"><input id="new-project-name" class="field-control" maxlength="50" placeholder="输入项目名称"><button class="button primary" type="submit"><span class="ui-icon" style="--icon:url('./assets/icons/plus.svg')" aria-hidden="true"></span>创建</button></div>
+      </form>
+      <p id="project-error" class="form-error" role="alert"></p>
+      <div id="project-list" class="project-list"></div>
+    </section>
+  </div>
+  <div id="player-backdrop" class="dialog-backdrop player-backdrop" hidden>
+    <section class="player-dialog" role="dialog" aria-modal="true" aria-labelledby="player-title">
+      <div class="dialog-header"><h2 id="player-title">本地预览</h2><button id="player-close" class="icon-button" aria-label="关闭播放器" title="关闭"><span class="ui-icon" style="--icon:url('./assets/icons/x.svg')" aria-hidden="true"></span></button></div>
+        <p id="player-status" class="player-status" role="status" aria-live="polite" hidden>正在加载预览…</p>
+      <video id="media-player" controls preload="metadata"></video>
+      <div class="player-footer"><label>倍速 <select id="playback-rate"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label><div class="player-actions"><button id="player-convert" class="button primary" hidden>生成兼容副本</button><button id="external-player" class="button">使用系统播放器</button></div></div>
+      <p id="player-error" class="form-error" role="alert"></p>
+    </section>
+  </div>
+  <div id="process-backdrop" class="dialog-backdrop" hidden>
+    <section class="dialog process-dialog" role="dialog" aria-modal="true" aria-labelledby="process-title">
+      <div class="dialog-header"><h2 id="process-title">处理素材</h2><button id="process-close" class="icon-button" aria-label="关闭处理面板" title="关闭"><span class="ui-icon" style="--icon:url('./assets/icons/x.svg')" aria-hidden="true"></span></button></div>
+      <div class="process-dialog-body">
+      <select id="process-mode" hidden aria-hidden="true" data-custom-select="false"><option value="convert">兼容 MP4</option><option value="clip">截取片段</option><option value="audio">提取 MP3</option><option value="crop-vertical">裁剪为 9:16</option><option value="rotate-left">向左旋转</option><option value="rotate-right">向右旋转</option><option value="mute">移除声音</option><option value="speed-2x">2 倍速</option><option value="compress">压缩体积</option></select>
+      <div class="process-tool-groups" role="radiogroup" aria-label="处理方式">
+        <section><h3>剪辑</h3><div class="process-tool-grid">
+          <button type="button" class="process-tool" data-process-mode="clip"><span class="ui-icon" style="--icon:url('./assets/icons/scissors.svg')"></span><span><strong>截取</strong><small>保留指定片段</small></span></button>
+          <button type="button" class="process-tool" data-process-mode="crop-vertical"><span class="ui-icon" style="--icon:url('./assets/icons/film.svg')"></span><span><strong>9:16 取景</strong><small>竖屏 720×1280</small></span></button>
+          <button type="button" class="process-tool" data-process-mode="speed-2x"><span class="ui-icon" style="--icon:url('./assets/icons/gauge.svg')"></span><span><strong>2 倍速</strong><small>画面声音同步</small></span></button>
+        </div></section>
+        <section><h3>画面</h3><div class="process-tool-grid">
+          <button type="button" class="process-tool" data-process-mode="rotate-left"><span class="ui-icon" style="--icon:url('./assets/icons/rotate-ccw.svg')"></span><span><strong>左转 90°</strong><small>生成新副本</small></span></button>
+          <button type="button" class="process-tool" data-process-mode="rotate-right"><span class="ui-icon" style="--icon:url('./assets/icons/rotate-cw.svg')"></span><span><strong>右转 90°</strong><small>生成新副本</small></span></button>
+          <button type="button" class="process-tool" data-process-mode="compress"><span class="ui-icon" style="--icon:url('./assets/icons/minimize-2.svg')"></span><span><strong>压缩</strong><small>最长边不超过 1280</small></span></button>
+        </div></section>
+        <section><h3>声音与格式</h3><div class="process-tool-grid">
+          <button type="button" class="process-tool" data-process-mode="audio"><span class="ui-icon" style="--icon:url('./assets/icons/music-2.svg')"></span><span><strong>提取 MP3</strong><small>保留音频</small></span></button>
+          <button type="button" class="process-tool" data-process-mode="mute"><span class="ui-icon" style="--icon:url('./assets/icons/volume-x.svg')"></span><span><strong>移除声音</strong><small>生成无声视频</small></span></button>
+          <button type="button" class="process-tool selected" data-process-mode="convert" aria-checked="true"><span class="ui-icon" style="--icon:url('./assets/icons/refresh-cw.svg')"></span><span><strong>兼容 MP4</strong><small>H.264 + AAC</small></span></button>
+        </div></section>
+      </div>
+      <div id="clip-range" class="range-fields" hidden><label>开始（秒）<input id="clip-start" class="field-control" type="number" min="0" step="0.1" value="0" required aria-describedby="clip-start-error"><span id="clip-start-error" class="field-error"></span></label><label>结束（秒）<input id="clip-end" class="field-control" type="number" min="0.1" step="0.1" value="10" required aria-describedby="clip-end-error"><span id="clip-end-error" class="field-error"></span></label></div>
+      <p id="clip-duration" class="input-summary" hidden></p>
+      <div id="crop-editor" class="crop-editor" hidden>
+        <div id="crop-stage" class="crop-stage">
+          <video id="crop-preview" muted preload="metadata"></video>
+          <div id="crop-mask" class="crop-mask" aria-label="9:16 裁剪框，可拖动调整取景位置" tabindex="0"><span>9:16</span></div>
+        </div>
+        <div class="crop-controls">
+          <label>水平位置 <input id="crop-x" type="range" min="0" max="100" value="50"></label>
+          <label>垂直位置 <input id="crop-y" type="range" min="0" max="100" value="50"></label>
+          <label>画面缩放 <input id="crop-zoom" type="range" min="100" max="200" value="100"><output id="crop-zoom-value">100%</output></label>
+        </div>
+        <p id="crop-status" class="crop-status" role="status" aria-live="polite">位置：水平 50%，垂直 50% · 缩放 100%</p>
+        <p class="input-summary">拖动取景框或使用滑杆调整；输出固定为 720×1280，原片不会修改。</p>
+      </div>
+      <p id="process-error" class="form-error" role="alert"></p>
+      </div>
+      <div class="dialog-actions"><button id="process-component-action" class="button" data-action="process-components" hidden>前往设置</button><button id="process-cancel" class="button">取消</button><button id="process-submit" class="button primary">开始处理</button></div>
+    </section>
+  </div>
+  <div id="download-backdrop" class="dialog-backdrop" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="download-title">
+      <div class="dialog-header"><h2 id="download-title">准备下载</h2><button id="download-close" class="icon-button" aria-label="关闭下载设置" title="关闭"><span class="ui-icon" style="--icon:url('./assets/icons/x.svg')" aria-hidden="true"></span></button></div>
+      <div id="download-summary" class="download-summary"></div>
+      <div id="download-exceptions" class="download-exceptions"></div>
+      <label class="field-label" for="download-preset">保存格式</label>
+      <select id="download-preset" class="field-control"><option value="package">完整素材包</option><option value="video">兼容 MP4</option><option value="source">保留来源格式</option><option value="audio">只要音频（MP3）</option></select>
+      <label id="download-quality-label" class="field-label" for="download-quality">清晰度</label>
+      <select id="download-quality" class="field-control"><option value="1080" selected>最高 1080p</option><option value="720">最高 720p</option><option value="best">最佳可用</option></select>
+      <details class="download-more"><summary>更多保存选项</summary><label id="download-subtitles-row" class="check-row"><input id="download-subtitles" type="checkbox"><span><strong>保存字幕文件</strong><small>有字幕时保存独立 VTT，没有字幕不影响视频下载</small></span></label><div id="download-subtitle-options" class="subtitle-options" hidden></div><div class="download-extras"><label id="download-retain-source-row"><input id="download-retain-source" type="checkbox" checked>同时保留原格式</label><label><input id="download-cover" type="checkbox">保存封面</label><label title="在素材旁保存原页面链接和标题，方便以后查找"><input id="download-source-record" type="checkbox" checked>保存来源信息</label></div></details>
+      <p id="download-quality-note" class="inline-note">实际结果取决于来源提供的格式，不会放大低分辨率视频。</p>
+      <p id="download-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button id="download-component-action" class="button" data-action="download-components" hidden>安装所需工具</button><button id="download-cancel" class="button">取消</button><button id="download-submit" class="button primary">开始下载</button></div>
+    </section>
+  </div>
+  <div id="inbox-detail-backdrop" class="dialog-backdrop" hidden>
+    <section class="dialog detail-dialog" role="dialog" aria-modal="true" aria-labelledby="inbox-detail-title">
+      <div class="dialog-header"><h2 id="inbox-detail-title">条目详情</h2><button id="inbox-detail-close" class="icon-button" aria-label="关闭条目详情" title="关闭"><span class="ui-icon" style="--icon:url('./assets/icons/x.svg')" aria-hidden="true"></span></button></div>
+      <form id="inbox-detail-form">
+        <label class="field-label" for="inbox-detail-name">显示标题</label>
+        <input id="inbox-detail-name" class="field-control" maxlength="512" required>
+        <label class="field-label" for="inbox-detail-project">项目</label>
+        <select id="inbox-detail-project" class="field-control"></select>
+        <dl id="inbox-detail-meta" class="detail-meta"></dl>
+        <p id="inbox-detail-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions"><button id="inbox-detail-source" class="button" type="button">打开来源</button><button id="inbox-detail-primary" class="button" type="button"></button><button id="inbox-detail-cancel" class="button" type="button">取消</button><button class="button primary" type="submit">保存</button></div>
+      </form>
+    </section>
+  </div>
+  <div id="batch-move-backdrop" class="dialog-backdrop" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="batch-move-title">
+      <div class="dialog-header"><h2 id="batch-move-title">移动所选条目</h2><button id="batch-move-close" class="icon-button" aria-label="关闭移动面板" title="关闭"><span class="ui-icon" style="--icon:url('./assets/icons/x.svg')" aria-hidden="true"></span></button></div>
+      <label class="field-label" for="batch-move-project">目标项目</label>
+      <select id="batch-move-project" class="field-control"></select>
+      <p id="batch-move-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button id="batch-move-cancel" class="button">取消</button><button id="batch-move-submit" class="button primary">移动</button></div>
+    </section>
+  </div>
+  <div id="media-edit-backdrop" class="dialog-backdrop" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="media-edit-title">
+      <div class="dialog-header"><h2 id="media-edit-title">整理素材</h2><button id="media-edit-close" class="icon-button" aria-label="关闭素材编辑" title="关闭"><span class="ui-icon" style="--icon:url('./assets/icons/x.svg')" aria-hidden="true"></span></button></div>
+      <form id="media-edit-form">
+        <label class="field-label" for="media-edit-name">显示名称</label>
+        <input id="media-edit-name" class="field-control" maxlength="512" required>
+        <label class="field-label" for="media-edit-project">项目</label>
+        <select id="media-edit-project" class="field-control"></select>
+        <p class="inline-note">修改显示名称不会更改硬盘文件名；移动项目不会搬动文件。</p>
+        <p id="media-edit-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions"><button id="media-edit-cancel" class="button" type="button">取消</button><button class="button primary" type="submit">保存</button></div>
+      </form>
+    </section>
+  </div>
+  <div id="local-import-backdrop" class="dialog-backdrop" hidden>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="local-import-title">
+      <div class="dialog-header"><h2 id="local-import-title">导入本地素材</h2><button id="local-import-close" class="icon-button" aria-label="关闭本地导入" title="关闭"><span class="ui-icon" style="--icon:url('./assets/icons/x.svg')" aria-hidden="true"></span></button></div>
+      <p id="local-import-summary" class="input-summary"></p>
+      <label class="field-label" for="local-import-project">项目</label>
+      <select id="local-import-project" class="field-control"></select>
+      <fieldset class="import-mode-options"><legend>文件管理方式</legend>
+        <label><input type="radio" name="local-import-mode" value="copy" checked><span><strong>复制到 ClipCargo</strong><small>占用额外空间；可由 ClipCargo 移到回收站</small></span></label>
+        <label><input type="radio" name="local-import-mode" value="reference"><span><strong>仅引用原文件</strong><small>不复制；原文件移动后需要重新定位，ClipCargo 不会删除它</small></span></label>
+      </fieldset>
+      <p id="local-import-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button id="local-import-cancel" class="button">取消</button><button id="local-import-submit" class="button primary">导入</button></div>
+    </section>
+  </div>
+  <div id="component-install-backdrop" class="dialog-backdrop" hidden>
+    <section class="dialog component-install-dialog" role="dialog" aria-modal="true" aria-labelledby="component-install-title">
+      <div class="dialog-header"><div><h2 id="component-install-title">安装工具</h2><p id="component-install-purpose" class="dialog-subtitle"></p></div><button id="component-install-close" class="icon-button" aria-label="关闭安装确认" title="关闭"><span class="ui-icon" style="--icon:url('./assets/icons/x.svg')" aria-hidden="true"></span></button></div>
+      <dl class="install-summary">
+        <div><dt>预计下载</dt><dd id="component-install-download"></dd></div>
+        <div><dt>安装后占用</dt><dd id="component-install-size"></dd></div>
+        <div><dt>来源</dt><dd id="component-install-source"></dd></div>
+        <div><dt>安装位置</dt><dd id="component-install-path"></dd></div>
+      </dl>
+      <p class="dialog-note">下载完成后会核对 SHA-256，并在版本自检通过后启用；校验失败不会替换现有版本。</p>
+      <p id="component-install-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button id="component-install-cancel" class="button">取消</button><button id="component-install-confirm" class="button primary"><span class="ui-icon" style="--icon:url('./assets/icons/download.svg')" aria-hidden="true"></span>确认下载并安装</button></div>
+    </section>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <div id="drop-overlay" class="drop-overlay" hidden><span class="drop-icon ui-icon" style="--icon:url('./assets/icons/package-open.svg')" aria-hidden="true"></span><strong>释放以导入本地素材</strong><span>视频或音频会复制到 ClipCargo 素材目录</span></div>
+</body>
+</html>

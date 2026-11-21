@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClipCargo</title>
+  <link rel="stylesheet" href="popup.css">
+  <script src="popup.js" defer></script>
+</head>
+<body>
+  <header class="popup-header"><div class="brand"><img class="mark" src="icons/32.png" alt=""><strong>ClipCargo</strong></div><span id="state-label" class="state-label">检查中</span></header>
+  <main class="popup-main">
+    <section class="page-context" aria-labelledby="page-title">
+      <h1 id="page-title">正在读取…</h1>
+    </section>
+    <form id="capture-form" class="capture-form">
+      <div class="project-row">
+        <div class="popup-input"><input id="project" list="projects-list" type="text" maxlength="50" value="未分类" placeholder="项目（默认：未分类）" aria-label="保存到项目"></div>
+        <datalist id="projects-list"></datalist>
+      </div>
+      <button id="capture" type="submit" disabled><img src="icons/download.svg" alt="">收进 ClipCargo</button>
+      <p id="message" class="message" role="status"></p>
+    </form>
+    <section class="site-control" aria-labelledby="site-control-title">
+      <div class="site-control-head"><div class="site-control-title"><strong id="site-control-title">页面入口</strong><span id="site-state">检查中</span></div>
+      <div class="site-actions"><button id="site-toggle" class="secondary" type="button" disabled>启用</button><button id="inject-page" class="secondary" type="button" aria-label="重新显示入口" title="重新显示入口" disabled hidden>重显</button></div></div>
+      <p id="site-detail" class="site-detail" role="status" aria-live="polite" hidden></p>
+    </section>
+  </main>
+</body>
+</html>

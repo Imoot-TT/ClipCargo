@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>X timeline video detection harness</title>
+  <style>
+    body { margin: 0; padding: 24px; background: #fff; font: 14px Arial, sans-serif; }
+    article { width: 420px; margin-bottom: 18px; padding: 12px; border: 1px solid #d9dce5; border-radius: 12px; }
+    [data-testid="videoPlayer"] { position: relative; width: 380px; height: 214px; background: #263248; }
+    #delayed-video-tweet [data-testid="videoPlayer"] { width: 0; height: 0; overflow: hidden; }
+    video { width: 100%; height: 100%; display: block; }
+    img { width: 380px; height: 214px; display: block; object-fit: cover; background: #dfe3eb; }
+  </style>
+</head>
+<body>
+  <article data-testid="tweet" id="video-tweet">
+    <a href="https://x.com/driver/status/123456789" aria-label="视频推文">视频推文</a>
+    <div data-testid="videoPlayer"><video muted></video></div>
+  </article>
+  <article data-testid="tweet" id="image-tweet">
+    <a href="https://x.com/artist/status/987654321" aria-label="图片推文">图片推文</a>
+    <img alt="图片内容">
+  </article>
+  <article data-testid="tweet" id="delayed-video-tweet">
+    <a href="https://x.com/driver/status/246813579" aria-label="延迟加载视频">延迟加载视频</a>
+    <div data-testid="videoPlayer"><video muted></video></div>
+  </article>
+  <script>globalThis.__clipCargoContentScriptHostOverride = 'x.com';</script>
+  <script src="/tests/x-content-mock.js"></script>
+  <script src="/extension/content.js"></script>
+  <script>
+    setTimeout(() => {
+      const delayed = document.querySelector('#delayed-video-tweet [data-testid="videoPlayer"]');
+      delayed.style.width = '380px';
+      delayed.style.height = '214px';
+    }, 500);
+    setTimeout(() => {
+      const videoMarkers = document.querySelectorAll('#video-tweet [data-clipcargo-video-control]').length;
+      const imageMarkers = document.querySelectorAll('#image-tweet [data-clipcargo-video-control]').length;
+      const delayedMarkers = document.querySelectorAll('#delayed-video-tweet [data-clipcargo-video-control]').length;
+      document.body.dataset.videoMarkers = String(videoMarkers);
+      document.body.dataset.imageMarkers = String(imageMarkers);
+      document.body.dataset.delayedMarkers = String(delayedMarkers);
+      const result = document.createElement('pre');
+      result.id = 'test-result';
+      result.textContent = `视频入口: ${videoMarkers}\n图片入口: ${imageMarkers}\n延迟入口: ${delayedMarkers}`;
+      result.style.cssText = 'position:fixed;right:16px;bottom:16px;margin:0;padding:10px 12px;border-radius:8px;background:#e8f5ef;color:#26745a;font:600 13px monospace;';
+      document.body.append(result);
+    }, 1100);
+  </script>
+</body>
+</html>
