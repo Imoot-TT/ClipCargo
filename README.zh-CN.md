@@ -7,6 +7,7 @@
     <img alt="桌面端版本" src="https://img.shields.io/badge/桌面端-最新-5364d9">
     <img alt="平台" src="https://img.shields.io/badge/平台-Windows%20x64-0078d4">
     <img alt="浏览器扩展" src="https://img.shields.io/badge/浏览器-Chrome-4285f4">
+    <img alt="许可" src="https://img.shields.io/badge/许可-专有软件-555b6e">
   </p>
 </div>
 
@@ -29,6 +30,10 @@ Chrome 扩展会在审核完成后通过 Chrome 应用商店安装。Release 中
 ## 隐私
 
 浏览器扩展只处理你主动收集页面的 URL、标题和项目名称，仅与同一设备上的 ClipCargo 本地通信；不会向远程服务器上传媒体文件或页面内容。完整内容见[隐私政策](extension/PRIVACY_POLICY.md)。
+
+## 许可协议
+
+ClipCargo 为专有软件。使用前请阅读[最终用户许可协议](docs/END_USER_LICENSE_AGREEMENT.md)和[LICENSE](LICENSE)。
 
 ## 独立产品
 

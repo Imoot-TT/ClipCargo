@@ -7,6 +7,7 @@
     <img alt="Desktop version" src="https://img.shields.io/badge/desktop-latest-5364d9">
     <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-0078d4">
     <img alt="Browser extension" src="https://img.shields.io/badge/browser-Chrome-4285f4">
+    <img alt="License" src="https://img.shields.io/badge/license-proprietary-555b6e">
   </p>
 </div>
 
@@ -29,6 +30,10 @@ The Chrome extension will be installed from the Chrome Web Store after its revie
 ## Privacy
 
 The browser extension processes only the URL, title, and project name for pages you actively collect. It communicates locally with ClipCargo on the same device and does not upload media files or page content to a remote server. Read the full [Privacy Policy](extension/PRIVACY_POLICY.md).
+
+## License
+
+ClipCargo is proprietary software. See the [End User License Agreement](docs/END_USER_LICENSE_AGREEMENT.md) and [LICENSE](LICENSE).
 
 ## Independent product
 

@@ -1,0 +1,19 @@
+ClipCargo Proprietary License
+
+Copyright (c) 2026 Imoot-TT. All rights reserved.
+
+ClipCargo, including its source code, desktop application, browser extension,
+documentation, visual assets, and release packages, is proprietary software.
+No permission is granted to copy, modify, distribute, sublicense, sell, lease,
+reverse engineer, or create derivative works from any part of ClipCargo except
+as expressly permitted by the applicable End User License Agreement.
+
+The source code is published for transparency and review only. Publication does
+not grant an open-source license or any right to use the source code in another
+product or service.
+
+Third-party components included with ClipCargo remain subject to their own
+licenses. See docs/THIRD-PARTY-NOTICES.md and docs/generated/DEPENDENCY-LICENSES.txt.
+
+For the terms governing use of the released application, see
+docs/END_USER_LICENSE_AGREEMENT.md.
