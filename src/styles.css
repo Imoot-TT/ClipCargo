@@ -527,15 +527,15 @@ h2 { margin-bottom: 4px; font-size: 15px; }
 .selection-actions { gap: 5px; }
 
 .inbox-table { border-radius: 9px; border-color: var(--micro-border); }
-.inbox-table-head { min-height: 32px; padding-inline: 9px; border-radius: 9px 9px 0 0; font-size: 10px; }
+.inbox-table-head { min-height: 34px; padding-inline: 9px; border-radius: 9px 9px 0 0; font-size: 11px; }
 .inbox-table-head, .inbox-row { grid-template-columns: 32px minmax(220px, 2.2fr) minmax(100px, .9fr) minmax(84px, .7fr) minmax(90px, .7fr) 72px minmax(112px, auto); }
-.inbox-row { min-height: 50px; padding: 5px 8px; }
+.inbox-row { min-height: 54px; padding: 6px 8px; }
 .source-tile { width: 28px; height: 28px; border-radius: 7px; }
 .source-tile .ui-icon { width: 15px; height: 15px; }
 .item-title { margin-bottom: 3px; font-size: 13px; line-height: 1.25; }
-.item-meta, .inbox-source, .inbox-project, .inbox-time { font-size: 10px; }
-.inbox-source small { margin-top: 2px; font-size: 10px; }
-.status { padding: 4px 7px; font-size: 10px; }
+.item-meta, .inbox-source, .inbox-project, .inbox-time { font-size: 11px; }
+.inbox-source small { margin-top: 2px; font-size: 11px; }
+.status { padding: 4px 8px; font-size: 11px; }
 .item-action { gap: 5px; }
 
 .task-list { gap: 5px; }
@@ -619,8 +619,8 @@ h2 { margin-bottom: 4px; font-size: 15px; }
 
 /* 2026 uniform control scale — one compact baseline across the workspace */
 :root {
-  --control-height: 28px;
-  --control-radius: 6px;
+  --control-height: 30px;
+  --control-radius: 7px;
   --control-font-size: 12px;
 }
 
@@ -694,7 +694,7 @@ h2 { margin-bottom: 4px; font-size: 15px; }
 @media (min-width: 721px) {
   .workspace {
     grid-template-columns: 1fr;
-    grid-template-rows: 36px minmax(0, 1fr);
+    grid-template-rows: 40px minmax(0, 1fr);
   }
 
   .sidebar {
@@ -714,7 +714,7 @@ h2 { margin-bottom: 4px; font-size: 15px; }
   }
 
   .nav-item {
-    min-width: 66px;
+    min-width: 70px;
     justify-content: center;
   }
 
