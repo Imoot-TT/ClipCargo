@@ -7,7 +7,7 @@ use std::{
     fs,
     io::{BufRead, BufReader, Read},
     net::{IpAddr, ToSocketAddrs},
-    path::{Component, PathBuf},
+    path::{Component, Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
@@ -6259,10 +6259,7 @@ fn bridge_status(state: State<'_, AppState>) -> BridgeStatus {
     let now = unix_seconds().max(0) as u64;
     let extension_active = last_seen_at.is_some_and(|seen| now.saturating_sub(seen) <= 150);
     let extension_version = heartbeat.as_ref().map(|status| status.version.clone());
-    let extension_package_version = fs::read(state.extension_dir.join("manifest.json"))
-        .ok()
-        .and_then(|contents| serde_json::from_slice::<serde_json::Value>(&contents).ok())
-        .and_then(|manifest| manifest.get("version").and_then(|value| value.as_str()).map(str::to_owned));
+    let extension_package_version = extension_package_version(&state.extension_dir);
     BridgeStatus {
         queue_path: state.bridge_inbox.clone(),
         host_name: "net.clipcargo.native".into(),
@@ -6276,6 +6273,18 @@ fn bridge_status(state: State<'_, AppState>) -> BridgeStatus {
         extension_package_version,
         last_seen_at,
     }
+}
+
+fn extension_package_version(extension_dir: &Path) -> Option<String> {
+    fs::read(extension_dir.join("manifest.json"))
+        .ok()
+        .and_then(|contents| serde_json::from_slice::<serde_json::Value>(&contents).ok())
+        .and_then(|manifest| {
+            manifest
+                .get("version")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        })
 }
 
 #[tauri::command]
@@ -7616,6 +7625,20 @@ mod tests {
             );
             assert_eq!(fs::read(file).unwrap(), content);
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reads_the_embedded_extension_package_version() {
+        let root = std::env::temp_dir().join(format!(
+            "clipcargo-extension-version-{}",
+            new_request_id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("manifest.json"), r#"{"version":"0.1.6"}"#).unwrap();
+        assert_eq!(extension_package_version(&root).as_deref(), Some("0.1.6"));
+        fs::write(root.join("manifest.json"), b"not-json").unwrap();
+        assert_eq!(extension_package_version(&root), None);
         fs::remove_dir_all(root).unwrap();
     }
 
