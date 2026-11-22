@@ -4,7 +4,7 @@
   <p>把你主动选择的网页视频页面收进 Windows 桌面端，再在本地统一整理、下载、处理和播放素材。</p>
   <p><a href="README.md">English</a> · <strong>中文</strong></p>
   <p>
-    <img alt="桌面端版本" src="https://img.shields.io/badge/桌面端-0.1.2-5364d9">
+    <img alt="桌面端版本" src="https://img.shields.io/badge/桌面端-最新-5364d9">
     <img alt="平台" src="https://img.shields.io/badge/平台-Windows%20x64-0078d4">
     <img alt="浏览器扩展" src="https://img.shields.io/badge/浏览器-Chrome-4285f4">
   </p>
@@ -14,7 +14,7 @@
 
 ## 下载
 
-[下载 ClipCargo 0.1.2 Windows x64 安装程序](https://github.com/Imoot-TT/ClipCargo/releases/tag/v0.1.2)
+[下载最新 ClipCargo Windows x64 安装程序](https://github.com/Imoot-TT/ClipCargo/releases/latest)
 
 Chrome 扩展会在审核完成后通过 Chrome 应用商店安装。Release 中的 ZIP 是提交商店审核的上传包，不是普通用户的安装文件。
 
