@@ -332,6 +332,7 @@ struct BridgeStatus {
     extension_verified: bool,
     extension_active: bool,
     extension_version: Option<String>,
+    extension_package_version: Option<String>,
     last_seen_at: Option<u64>,
 }
 
@@ -6258,6 +6259,10 @@ fn bridge_status(state: State<'_, AppState>) -> BridgeStatus {
     let now = unix_seconds().max(0) as u64;
     let extension_active = last_seen_at.is_some_and(|seen| now.saturating_sub(seen) <= 150);
     let extension_version = heartbeat.as_ref().map(|status| status.version.clone());
+    let extension_package_version = fs::read(state.extension_dir.join("manifest.json"))
+        .ok()
+        .and_then(|contents| serde_json::from_slice::<serde_json::Value>(&contents).ok())
+        .and_then(|manifest| manifest.get("version").and_then(|value| value.as_str()).map(str::to_owned));
     BridgeStatus {
         queue_path: state.bridge_inbox.clone(),
         host_name: "net.clipcargo.native".into(),
@@ -6268,6 +6273,7 @@ fn bridge_status(state: State<'_, AppState>) -> BridgeStatus {
         extension_verified: heartbeat.is_some(),
         extension_active,
         extension_version,
+        extension_package_version,
         last_seen_at,
     }
 }
