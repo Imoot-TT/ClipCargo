@@ -1,6 +1,6 @@
 [package]
 name = "clipcargo"
-version = "0.1.4"
+version = "0.1.5"
 description = "ClipCargo desktop application"
 authors = ["Imoot-TT"]
 edition = "2021"

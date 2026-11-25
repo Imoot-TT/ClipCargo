@@ -33,8 +33,10 @@ fn external_tool_start_error(tool: &str, error: &std::io::Error) -> String {
 struct AppState {
     db: Mutex<Connection>,
     db_path: PathBuf,
+    app_data_dir: PathBuf,
     bridge_inbox: PathBuf,
-    components_dir: PathBuf,
+    components_dir: Mutex<PathBuf>,
+    components_config_path: PathBuf,
     extension_dir: PathBuf,
     downloads_dir: Mutex<PathBuf>,
     downloads_config_path: PathBuf,
@@ -63,6 +65,14 @@ fn current_downloads_dir(state: &AppState) -> Result<PathBuf, String> {
         .lock()
         .map(|path| path.clone())
         .map_err(|_| "下载目录状态不可用。".to_string())
+}
+
+fn current_components_dir(state: &AppState) -> Result<PathBuf, String> {
+    state
+        .components_dir
+        .lock()
+        .map(|path| path.clone())
+        .map_err(|_| "工具目录状态不可用。".to_string())
 }
 
 fn safe_asset_folder_segment(value: &str, fallback: &str) -> String {
@@ -334,6 +344,7 @@ struct BridgeStatus {
     extension_version: Option<String>,
     extension_package_version: Option<String>,
     last_seen_at: Option<u64>,
+    debug_build: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1895,54 +1906,48 @@ fn browser_profile_ready(profile_dir: &std::path::Path) -> bool {
     copied
 }
 
-fn source_login_root(components_dir: &std::path::Path) -> Result<PathBuf, String> {
-    components_dir
-        .parent()
-        .map(|path| path.join("login-profiles"))
-        .ok_or_else(|| "无法确定登录数据目录。".to_string())
+fn source_login_root(app_data_dir: &std::path::Path) -> PathBuf {
+    app_data_dir.join("login-profiles")
 }
 
-fn source_auth_config_path(components_dir: &std::path::Path) -> Result<PathBuf, String> {
-    components_dir
-        .parent()
-        .map(|path| path.join("source-login.txt"))
-        .ok_or_else(|| "无法确定登录设置位置。".to_string())
+fn source_auth_config_path(app_data_dir: &std::path::Path) -> PathBuf {
+    app_data_dir.join("source-login.txt")
 }
 
-fn source_browser_spec(components_dir: &std::path::Path, browser: &str) -> Result<String, String> {
+fn source_browser_spec(app_data_dir: &std::path::Path, browser: &str) -> Result<String, String> {
     if !matches!(browser, "chrome" | "edge") {
         return Err("登录浏览器设置无效。".into());
     }
-    let profile_dir = source_login_root(components_dir)?.join(browser);
+    let profile_dir = source_login_root(app_data_dir).join(browser);
     if !browser_profile_ready(&profile_dir) {
         return Err("登录数据不存在或仍被占用，请重新完成登录。".into());
     }
     Ok(format!("{browser}:{}", profile_dir.to_string_lossy()))
 }
 
-fn read_configured_source_browser(components_dir: &std::path::Path) -> Option<String> {
-    let config = source_auth_config_path(components_dir).ok()?;
+fn read_configured_source_browser(app_data_dir: &std::path::Path) -> Option<String> {
+    let config = source_auth_config_path(app_data_dir);
     let browser = fs::read_to_string(config).ok()?.trim().to_ascii_lowercase();
-    source_browser_spec(components_dir, &browser).ok()
+    source_browser_spec(app_data_dir, &browser).ok()
 }
 
 fn save_configured_source_browser(
-    components_dir: &std::path::Path,
+    app_data_dir: &std::path::Path,
     browser: &str,
 ) -> Result<(), String> {
-    let config = source_auth_config_path(components_dir)?;
+    let config = source_auth_config_path(app_data_dir);
     let temporary = config.with_extension("txt.tmp");
     fs::write(&temporary, browser.as_bytes())
         .map_err(|error| format!("保存登录设置失败：{error}"))?;
     fs::rename(&temporary, &config).map_err(|error| format!("启用登录设置失败：{error}"))
 }
 
-fn clear_configured_source_browser(components_dir: &std::path::Path) -> Result<(), String> {
-    let config = source_auth_config_path(components_dir)?;
+fn clear_configured_source_browser(app_data_dir: &std::path::Path) -> Result<(), String> {
+    let config = source_auth_config_path(app_data_dir);
     if config.exists() {
         fs::remove_file(&config).map_err(|error| format!("清除登录设置失败：{error}"))?;
     }
-    let root = source_login_root(components_dir)?;
+    let root = source_login_root(app_data_dir);
     if root.exists() {
         fs::remove_dir_all(&root)
             .map_err(|error| format!("清除独立浏览器登录数据失败：{error}"))?;
@@ -1982,7 +1987,7 @@ fn open_source_login(
     } else {
         "https://www.youtube.com/".to_string()
     };
-    let profile_dir = source_login_root(&state.components_dir)?.join(&browser);
+    let profile_dir = source_login_root(&state.app_data_dir).join(&browser);
     fs::create_dir_all(&profile_dir).map_err(|error| format!("创建登录数据目录失败：{error}"))?;
     let mut sessions = state
         .source_login
@@ -2032,8 +2037,8 @@ fn finish_source_login(state: State<'_, AppState>) -> Result<SourceAuthStatus, S
     if !browser_profile_ready(&session.profile_dir) {
         return Err("没有检测到登录数据。请在登录窗口中进入网站并完成登录后再试。".into());
     }
-    let browser_spec = source_browser_spec(&state.components_dir, &session.browser)?;
-    save_configured_source_browser(&state.components_dir, &session.browser)?;
+    let browser_spec = source_browser_spec(&state.app_data_dir, &session.browser)?;
+    save_configured_source_browser(&state.app_data_dir, &session.browser)?;
     *state
         .source_browser
         .lock()
@@ -2065,7 +2070,7 @@ fn set_source_browser(
         terminate_child_tree(&mut session.child);
         let _ = session.child.wait();
     }
-    clear_configured_source_browser(&state.components_dir)?;
+    clear_configured_source_browser(&state.app_data_dir)?;
     *state
         .source_browser
         .lock()
@@ -2268,7 +2273,8 @@ fn resolver_subtitle_options(metadata: &ResolverOutput) -> Vec<SubtitleOption> {
 
 #[tauri::command]
 async fn resolve_inbox_item(id: i64, state: State<'_, AppState>) -> Result<InboxItem, String> {
-    let component = state.components_dir.join("yt-dlp.exe");
+    let components_dir = current_components_dir(&state)?;
+    let component = components_dir.join("yt-dlp.exe");
     if !component.is_file() {
         let message = "需要下载引擎才能识别；链接已保留，安装后可继续。";
         let connection = state
@@ -2313,7 +2319,7 @@ async fn resolve_inbox_item(id: i64, state: State<'_, AppState>) -> Result<Inbox
         .lock()
         .map_err(|_| "浏览器登录状态不可用。".to_string())?
         .clone();
-    let cookie_directory = state.components_dir.clone();
+    let cookie_directory = components_dir;
     let output_result = tauri::async_runtime::spawn_blocking(move || {
         let run = |browser: Option<&str>| {
             let mut command = Command::new(&component);
@@ -3008,7 +3014,8 @@ async fn process_media(
     state: State<'_, AppState>,
 ) -> Result<MediaDerivative, String> {
     let downloads_dir = current_downloads_dir(&state)?;
-    let ffmpeg = state.components_dir.join("ffmpeg.exe");
+    let components_dir = current_components_dir(&state)?;
+    let ffmpeg = components_dir.join("ffmpeg.exe");
     if !ffmpeg.is_file() || !ffmpeg.with_file_name("ffprobe.exe").is_file() {
         return Err("请先在“设置”安装或修复视频处理工具。".into());
     }
@@ -3649,7 +3656,7 @@ fn import_local_media(
 ) -> Result<Vec<DownloadJob>, String> {
     let downloads_dir = current_downloads_dir(&state)?;
     fs::create_dir_all(&downloads_dir).map_err(|error| format!("创建素材目录失败：{error}"))?;
-    let ffprobe = state.components_dir.join("ffprobe.exe");
+    let ffprobe = current_components_dir(&state)?.join("ffprobe.exe");
     for path in &paths {
         validate_local_media_with_probe(path, &ffprobe)?;
     }
@@ -3675,7 +3682,7 @@ fn inspect_local_media(
         return Err("请选择 1–100 个本地媒体文件。".into());
     }
     let mut total_bytes = 0_u64;
-    let ffprobe = state.components_dir.join("ffprobe.exe");
+    let ffprobe = current_components_dir(&state)?.join("ffprobe.exe");
     for raw_path in &paths {
         let (_, bytes) = validate_local_media_with_probe(raw_path, &ffprobe)?;
         total_bytes = total_bytes.saturating_add(bytes);
@@ -3790,7 +3797,7 @@ fn relink_media(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let downloads_dir = current_downloads_dir(&state)?;
-    validate_local_media_with_probe(&path, &state.components_dir.join("ffprobe.exe"))?;
+    validate_local_media_with_probe(&path, &current_components_dir(&state)?.join("ffprobe.exe"))?;
     let connection = state
         .db
         .lock()
@@ -4031,12 +4038,99 @@ fn reveal_media(
 
 #[tauri::command]
 fn open_components_directory(state: State<'_, AppState>) -> Result<(), String> {
-    let directory = prepare_directory_for_open(&state.components_dir, "工具")?;
+    let components_dir = current_components_dir(&state)?;
+    let directory = prepare_directory_for_open(&components_dir, "工具")?;
     Command::new("explorer.exe")
         .arg(&directory)
         .spawn()
-        .map_err(|error| format!("无法打开工具与许可文件目录：{error}"))?;
+        .map_err(|error| format!("无法打开工具目录：{error}"))?;
     Ok(())
+}
+
+fn component_location_is_busy(state: &AppState) -> Result<bool, String> {
+    Ok(state.component_installing.load(Ordering::Acquire)
+        || !state
+            .active_downloads
+            .lock()
+            .map_err(|_| "下载任务状态不可用。")?
+            .is_empty()
+        || !state
+            .queued_downloads
+            .lock()
+            .map_err(|_| "下载队列状态不可用。")?
+            .is_empty()
+        || !state
+            .active_processing
+            .lock()
+            .map_err(|_| "处理任务状态不可用。")?
+            .is_empty()
+        || !state
+            .queued_processing
+            .lock()
+            .map_err(|_| "处理队列状态不可用。")?
+            .is_empty())
+}
+
+fn copy_component_files(current: &Path, target: &Path) -> Result<(), String> {
+    if !current.is_dir() || current == target {
+        return Ok(());
+    }
+    for entry in fs::read_dir(current).map_err(|error| format!("读取现有工具目录失败：{error}"))? {
+        let entry = entry.map_err(|error| format!("读取工具文件失败：{error}"))?;
+        let source = entry.path();
+        if !source.is_file() {
+            continue;
+        }
+        let destination = target.join(entry.file_name());
+        if destination.exists() {
+            continue;
+        }
+        fs::copy(&source, &destination)
+            .map_err(|error| format!("迁移工具文件 {} 失败：{error}", source.display()))?;
+        fs::remove_file(&source)
+            .map_err(|error| format!("清理旧工具文件 {} 失败：{error}", source.display()))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_components_directory(
+    directory: String,
+    state: State<'_, AppState>,
+) -> Result<PathBuf, String> {
+    if component_location_is_busy(&state)? {
+        return Err("请等待当前下载、处理或工具安装结束后再更改工具位置。".into());
+    }
+    let requested = PathBuf::from(directory.trim());
+    if !requested.is_absolute() || requested.to_string_lossy().len() > 2048 {
+        return Err("请选择有效的本地文件夹。".into());
+    }
+    fs::create_dir_all(&requested).map_err(|error| format!("无法创建所选工具文件夹：{error}"))?;
+    let canonical = requested
+        .canonicalize()
+        .map_err(|error| format!("无法使用所选工具文件夹：{error}"))?;
+    if !canonical.is_dir() {
+        return Err("所选工具位置不是文件夹。".into());
+    }
+    let current_path = current_components_dir(&state)?;
+    let current = current_path.canonicalize().unwrap_or(current_path);
+    if canonical == current {
+        return Ok(canonical);
+    }
+    if canonical.starts_with(&current) || current.starts_with(&canonical) {
+        return Err("工具文件夹不能嵌套在当前工具文件夹中。".into());
+    }
+    copy_component_files(&current, &canonical)?;
+    let temporary = state.components_config_path.with_extension("txt.tmp");
+    fs::write(&temporary, canonical.to_string_lossy().as_bytes())
+        .map_err(|error| format!("保存工具位置失败：{error}"))?;
+    fs::rename(&temporary, &state.components_config_path)
+        .map_err(|error| format!("启用工具位置失败：{error}"))?;
+    *state
+        .components_dir
+        .lock()
+        .map_err(|_| "工具目录状态不可用。".to_string())? = canonical.clone();
+    Ok(canonical)
 }
 
 #[tauri::command]
@@ -4208,6 +4302,17 @@ fn open_extension_directory(state: State<'_, AppState>) -> Result<String, String
     Ok(directory.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn open_extension_store() -> Result<(), String> {
+    const STORE_URL: &str =
+        "https://chromewebstore.google.com/detail/clipcargo/maenmnckhgckmkcaijmpeghkcfhchiha";
+    Command::new("rundll32.exe")
+        .args(["url.dll,FileProtocolHandler", STORE_URL])
+        .spawn()
+        .map_err(|error| format!("无法打开 Chrome 网上应用店：{error}"))?;
+    Ok(())
+}
+
 fn normalize_extension_id(extension_id: &str) -> Result<String, String> {
     let extension_id = extension_id.trim().to_ascii_lowercase();
     if extension_id.len() != 32
@@ -4231,10 +4336,7 @@ fn register_extension_bridge(state: &AppState) -> Result<(), String> {
     if !host_exe.is_file() {
         return Err("本地桥接程序未安装，当前构建不能连接浏览器扩展。".into());
     }
-    let app_data = state
-        .components_dir
-        .parent()
-        .ok_or("无法确定应用数据目录。")?;
+    let app_data = &state.app_data_dir;
     let manifest_dir = app_data.join("native-messaging");
     fs::create_dir_all(&manifest_dir).map_err(|error| format!("无法创建桥接配置目录：{error}"))?;
     let manifest_path = manifest_dir.join("net.clipcargo.native.json");
@@ -5747,12 +5849,13 @@ async fn download_inbox_item(
     state: State<'_, AppState>,
 ) -> Result<DownloadJob, String> {
     let downloads_dir = current_downloads_dir(&state)?;
-    let component = state.components_dir.join("yt-dlp.exe");
+    let components_dir = current_components_dir(&state)?;
+    let component = components_dir.join("yt-dlp.exe");
     if !component.is_file() {
         return Err("请先在“设置”安装下载引擎。".into());
     }
-    if !state.components_dir.join("ffmpeg.exe").is_file()
-        || !state.components_dir.join("ffprobe.exe").is_file()
+    if !components_dir.join("ffmpeg.exe").is_file()
+        || !components_dir.join("ffprobe.exe").is_file()
     {
         return Err("下载、合并和完整性校验需要视频处理工具，请先在“设置”安装或修复。".into());
     }
@@ -5913,7 +6016,7 @@ async fn download_inbox_item(
     let active_processing = state.active_processing.clone();
     let queued_processing = state.queued_processing.clone();
     let package_downloads_dir = downloads_dir.clone();
-    let package_ffmpeg = state.components_dir.join("ffmpeg.exe");
+    let package_ffmpeg = components_dir.join("ffmpeg.exe");
     // Authentication can become necessary only when yt-dlp requests the media
     // streams, even though metadata recognition succeeded anonymously. Keep a
     // configured browser available for that second-stage retry as well.
@@ -6230,10 +6333,7 @@ fn bridge_status(state: State<'_, AppState>) -> BridgeStatus {
         .as_ref()
         .map(|path| path.with_file_name("clipcargo-native-host.exe").is_file())
         .unwrap_or(false);
-    let manifest_path = state
-        .components_dir
-        .parent()
-        .map(|path| path.join("native-messaging/net.clipcargo.native.json"));
+    let manifest_path = Some(state.app_data_dir.join("native-messaging/net.clipcargo.native.json"));
     let registered_extension_ids = manifest_path
         .as_ref()
         .map(extension_ids_from_manifest)
@@ -6272,6 +6372,7 @@ fn bridge_status(state: State<'_, AppState>) -> BridgeStatus {
         extension_version,
         extension_package_version,
         last_seen_at,
+        debug_build: cfg!(debug_assertions),
     }
 }
 
@@ -6290,17 +6391,18 @@ fn extension_package_version(extension_dir: &Path) -> Option<String> {
 #[tauri::command]
 fn component_status(state: State<'_, AppState>) -> ComponentStatus {
     let downloads_dir = current_downloads_dir(&state).unwrap_or_default();
-    let yt_dlp_path = state.components_dir.join("yt-dlp.exe");
+    let components_dir = current_components_dir(&state).unwrap_or_default();
+    let yt_dlp_path = components_dir.join("yt-dlp.exe");
     let yt_dlp_ready = yt_dlp_path.is_file();
-    let ffmpeg_ready = state.components_dir.join("ffmpeg.exe").is_file()
-        && state.components_dir.join("ffprobe.exe").is_file();
-    let deno_path = state.components_dir.join("deno.exe");
+    let ffmpeg_ready = components_dir.join("ffmpeg.exe").is_file()
+        && components_dir.join("ffprobe.exe").is_file();
+    let deno_path = components_dir.join("deno.exe");
     let deno_ready = deno_path.is_file();
     let managed_bytes = |kind: &str| {
         component_managed_files(kind)
             .unwrap_or(&[])
             .iter()
-            .filter_map(|name| fs::metadata(state.components_dir.join(name)).ok())
+            .filter_map(|name| fs::metadata(components_dir.join(name)).ok())
             .filter(|metadata| metadata.is_file())
             .map(|metadata| metadata.len())
             .sum::<u64>()
@@ -6312,7 +6414,7 @@ fn component_status(state: State<'_, AppState>) -> ComponentStatus {
         yt_dlp_ready,
         ffmpeg_ready,
         deno_ready,
-        component_directory: state.components_dir.clone(),
+        component_directory: components_dir.clone(),
         downloads_directory: downloads_dir.clone(),
         download_pipeline: if yt_dlp_ready {
             "ready".into()
@@ -6330,7 +6432,7 @@ fn component_status(state: State<'_, AppState>) -> ComponentStatus {
             None
         },
         ffmpeg_version: if ffmpeg_ready {
-            Command::new(state.components_dir.join("ffmpeg.exe"))
+            Command::new(components_dir.join("ffmpeg.exe"))
                 .arg("-version")
                 .output()
                 .ok()
@@ -6538,7 +6640,8 @@ fn remove_component(kind: String, state: State<'_, AppState>) -> Result<usize, S
     if busy {
         return Err("有下载或处理任务正在运行或排队，请先完成或停止任务再卸载工具。".into());
     }
-    remove_component_files(&state.components_dir, &kind)
+    let components_dir = current_components_dir(&state)?;
+    remove_component_files(&components_dir, &kind)
 }
 
 fn expected_yt_dlp_hash(checksums: &str) -> Result<String, String> {
@@ -6563,7 +6666,8 @@ fn standalone_sha256(raw: &str) -> Result<String, String> {
 
 #[tauri::command]
 async fn install_yt_dlp(state: State<'_, AppState>) -> Result<ComponentInstallResult, String> {
-    ensure_free_space(&state.components_dir, 128 * 1_048_576, "安装下载引擎")?;
+    let components_dir = current_components_dir(&state)?;
+    ensure_free_space(&components_dir, 128 * 1_048_576, "安装下载引擎")?;
     state
         .component_installing
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -6579,7 +6683,7 @@ async fn install_yt_dlp(state: State<'_, AppState>) -> Result<ComponentInstallRe
         progress: &state.component_install_progress,
     };
     install_yt_dlp_into_controlled(
-        &state.components_dir,
+        &components_dir,
         &state.component_cancel_requested,
         Some(&state.component_install_phase),
         Some(&state.component_install_progress),
@@ -6854,8 +6958,9 @@ async fn install_yt_dlp_into_controlled(
 
 #[tauri::command]
 async fn install_deno(state: State<'_, AppState>) -> Result<ComponentInstallResult, String> {
+    let components_dir = current_components_dir(&state)?;
     ensure_free_space(
-        &state.components_dir,
+        &components_dir,
         160 * 1_048_576,
         "安装 JavaScript 运行时",
     )?;
@@ -6874,7 +6979,7 @@ async fn install_deno(state: State<'_, AppState>) -> Result<ComponentInstallResu
         progress: &state.component_install_progress,
     };
     install_deno_into_controlled(
-        &state.components_dir,
+        &components_dir,
         &state.component_cancel_requested,
         Some(&state.component_install_phase),
         Some(&state.component_install_progress),
@@ -7019,7 +7124,8 @@ async fn install_deno_into_controlled(
 
 #[tauri::command]
 async fn install_ffmpeg(state: State<'_, AppState>) -> Result<ComponentInstallResult, String> {
-    ensure_free_space(&state.components_dir, 512 * 1_048_576, "安装视频处理工具")?;
+    let components_dir = current_components_dir(&state)?;
+    ensure_free_space(&components_dir, 512 * 1_048_576, "安装视频处理工具")?;
     state
         .component_installing
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -7035,7 +7141,7 @@ async fn install_ffmpeg(state: State<'_, AppState>) -> Result<ComponentInstallRe
         progress: &state.component_install_progress,
     };
     install_ffmpeg_into_controlled(
-        &state.components_dir,
+        &components_dir,
         &state.component_cancel_requested,
         Some(&state.component_install_phase),
         Some(&state.component_install_progress),
@@ -7227,25 +7333,42 @@ fn read_configured_downloads_dir(app_data: &PathBuf) -> PathBuf {
     }
 }
 
+fn read_configured_components_dir(app_data: &PathBuf) -> PathBuf {
+    let fallback = app_data.join("components");
+    let config_path = app_data.join("component-location.txt");
+    let Ok(raw) = fs::read_to_string(config_path) else {
+        return fallback;
+    };
+    let candidate = PathBuf::from(raw.trim());
+    if candidate.is_absolute() && candidate.to_string_lossy().len() <= 2048 {
+        candidate
+    } else {
+        fallback
+    }
+}
+
 fn application_paths(
     app: &tauri::App,
-) -> Result<(PathBuf, PathBuf, PathBuf, PathBuf, PathBuf), String> {
+) -> Result<(PathBuf, PathBuf, PathBuf, PathBuf, PathBuf, PathBuf, PathBuf), String> {
     let app_data = app
         .path()
         .app_local_data_dir()
         .map_err(|error| format!("无法确定应用数据目录：{error}"))?;
     fs::create_dir_all(&app_data).map_err(|error| format!("无法创建应用数据目录：{error}"))?;
-    let components_dir = app_data.join("components");
+    let components_dir = read_configured_components_dir(&app_data);
     fs::create_dir_all(&components_dir).map_err(|error| format!("无法创建工具目录：{error}"))?;
+    let components_config_path = app_data.join("component-location.txt");
     let downloads_config_path = app_data.join("download-location.txt");
     let downloads_dir = read_configured_downloads_dir(&app_data);
     fs::create_dir_all(&downloads_dir).map_err(|error| format!("无法创建下载目录：{error}"))?;
     Ok((
+        app_data.clone(),
         app_data.join("clipcargo.sqlite3"),
         app_data.join("bridge-inbox"),
         components_dir,
         downloads_dir,
         downloads_config_path,
+        components_config_path,
     ))
 }
 
@@ -7326,11 +7449,13 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let (
+                app_data_dir,
                 database_path,
                 bridge_inbox,
                 components_dir,
                 downloads_dir,
                 downloads_config_path,
+                components_config_path,
             ) =
                 application_paths(app)?;
             let database_existed = database_path
@@ -7380,18 +7505,17 @@ fn main() {
             let extension_dir = if bundled_extension_dir.join("manifest.json").is_file() {
                 bundled_extension_dir
             } else {
-                let development_extension_dir = components_dir
-                    .parent()
-                    .ok_or("无法确定开发扩展目录。")?
-                    .join("browser-extension-development");
+                let development_extension_dir = app_data_dir.join("browser-extension-development");
                 materialize_embedded_extension(&development_extension_dir)?
             };
-            let source_browser = read_configured_source_browser(&components_dir);
+            let source_browser = read_configured_source_browser(&app_data_dir);
             app.manage(AppState {
                 db: Mutex::new(connection),
                 db_path: database_path,
+                app_data_dir,
                 bridge_inbox,
-                components_dir,
+                components_dir: Mutex::new(components_dir),
+                components_config_path,
                 extension_dir,
                 downloads_dir: Mutex::new(downloads_dir),
                 downloads_config_path,
@@ -7498,9 +7622,11 @@ fn main() {
             import_asset_package_to_editor,
             open_asset_package,
             open_components_directory,
+            set_components_directory,
             open_downloads_directory,
             set_downloads_directory,
             open_extension_directory,
+            open_extension_store,
             get_media_path,
             get_media_subtitles,
             remove_media_from_library,
@@ -7584,13 +7710,13 @@ mod tests {
         fs::create_dir_all(&components).unwrap();
         fs::write(&cookie_database, b"isolated-cookie-database").unwrap();
 
-        save_configured_source_browser(&components, "chrome").unwrap();
-        let restored = read_configured_source_browser(&components).unwrap();
+        save_configured_source_browser(&root, "chrome").unwrap();
+        let restored = read_configured_source_browser(&root).unwrap();
         assert!(restored.starts_with("chrome:"));
         assert!(restored.contains("login-profiles"));
 
-        clear_configured_source_browser(&components).unwrap();
-        assert!(read_configured_source_browser(&components).is_none());
+        clear_configured_source_browser(&root).unwrap();
+        assert!(read_configured_source_browser(&root).is_none());
         assert!(!root.join("login-profiles").exists());
         fs::remove_dir_all(root).unwrap();
     }

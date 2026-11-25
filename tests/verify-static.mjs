@@ -18,6 +18,7 @@ const app = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../src/index.html', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 const rust = readFileSync(new URL('../src-tauri/src/main.rs', import.meta.url), 'utf8');
+const nativeHost = readFileSync(new URL('../src-tauri/src/bin/native_host.rs', import.meta.url), 'utf8');
 for (const match of app.matchAll(/icon\('([^']+)'/g)) {
   const iconName = match[1];
   if (!existsSync(new URL(`../src/assets/icons/${iconName}.svg`, import.meta.url))) throw new Error(`Missing UI icon asset: ${iconName}.svg`);
@@ -49,7 +50,7 @@ for (const marker of ['max-height: calc(100vh - 32px)', 'textarea { width: 100%;
 }
 if (!styles.includes('--muted: light-dark(#626873, #a8acb5)')) throw new Error('Muted text contrast regression');
 if (!app.includes('function readableError(error)') || app.includes('String(error)')) throw new Error('User-facing errors must not expose raw Error prefixes');
-for (const command of ['list_inbox', 'capture_page', 'remove_inbox_item', 'move_inbox_items', 'update_inbox_details', 'inspect_local_media', 'import_local_media', 'bridge_status', 'open_components_directory', 'open_extension_directory']) {
+for (const command of ['list_inbox', 'capture_page', 'remove_inbox_item', 'move_inbox_items', 'update_inbox_details', 'inspect_local_media', 'import_local_media', 'bridge_status', 'open_components_directory', 'set_components_directory', 'open_extension_directory', 'open_extension_store']) {
   if (!app.includes(`'${command}'`)) throw new Error(`Frontend does not call ${command}`);
 }
 for (const importModeMarker of ['local-import-backdrop', '仅引用原文件', 'importMode', 'managed_file', 'managedFile', '外部引用']) {
@@ -164,10 +165,10 @@ for (const projectSuggestionMarker of ['project-options', 'canonicalProjectName'
 for (const compactAddDialogMarker of ['class="dialog add-link-dialog"', 'rows="4"', '.add-link-dialog { width: min(460px', '.add-link-dialog textarea { min-height: 88px']) {
   if (!`${html}\n${styles}`.includes(compactAddDialogMarker)) throw new Error(`Compact add-link dialog regressed: ${compactAddDialogMarker}`);
 }
-for (const authLabelMarker of ['需要登录的视频', '在 Chrome 中登录', '在 Edge 中登录', '我已完成登录', '仅下载公开内容']) {
+for (const authLabelMarker of ['需要登录的视频', '在 Chrome 中登录', '在 Edge 中登录', '我已完成登录', '已保存登录配置', '不会读取日常浏览器账号']) {
   if (!app.includes(authLabelMarker)) throw new Error(`Browser session wording regressed: ${authLabelMarker}`);
 }
-for (const downloadLocationMarker of ['chooseDownloadDirectory', "invoke('set_downloads_directory'", "invoke('open_downloads_directory'", 'download-location.txt', 'managed_roots', 'allow_managed_roots']) {
+for (const downloadLocationMarker of ['chooseDownloadDirectory', "invoke('set_downloads_directory'", "invoke('open_downloads_directory'", 'download-location.txt', 'managed_roots', 'allow_managed_roots', 'chooseComponentsDirectory', "invoke('set_components_directory'", 'component-location.txt']) {
   if (!`${app}\n${rust}`.includes(downloadLocationMarker)) throw new Error(`User-selectable download location is incomplete: ${downloadLocationMarker}`);
 }
 
@@ -177,13 +178,13 @@ if (config.bundle.windows.webviewInstallMode.type !== 'downloadBootstrapper') th
 if (!config.bundle.externalBin?.includes('binaries/clipcargo-native-host')) throw new Error('Native Host is not bundled as a Tauri sidecar');
 if (config.build.beforeDevCommand?.wait !== true || config.build.beforeDevCommand?.cwd !== '..') throw new Error('Native Host dev build must finish before Tauri starts');
 if (config.build.beforeBuildCommand?.cwd !== '..') throw new Error('Native Host release build has an unexpected working directory');
-for (const bridgeMarker of ['EMBEDDED_EXTENSION_FILES', 'DEVELOPMENT_EXTENSION_ID', 'STORE_EXTENSION_ID', 'TRUSTED_EXTENSION_IDS', 'register_extension_bridge(&state)', 'NativeMessagingHosts', 'clipcargo-native-host.exe']) {
-  if (!rust.includes(bridgeMarker)) throw new Error(`Browser extension bridge setup is incomplete: ${bridgeMarker}`);
+for (const bridgeMarker of ['EMBEDDED_EXTENSION_FILES', 'DEVELOPMENT_EXTENSION_ID', 'STORE_EXTENSION_ID', 'TRUSTED_EXTENSION_IDS', 'register_extension_bridge(&state)', 'NativeMessagingHosts', 'clipcargo-native-host.exe', 'windows_subsystem']) {
+  if (!(rust.includes(bridgeMarker) || nativeHost.includes(bridgeMarker))) throw new Error(`Browser extension bridge setup is incomplete: ${bridgeMarker}`);
 }
-for (const bridgeStatusMarker of ['struct BridgeStatus', 'extension_ids_from_manifest', 'registry_points_to_manifest', 'extension_verified', 'extension_active', '.extension-status']) {
+for (const bridgeStatusMarker of ['struct BridgeStatus', 'extension_ids_from_manifest', 'registry_points_to_manifest', 'extension_verified', 'extension_active', '.extension-status', 'debug_build']) {
   if (!rust.includes(bridgeStatusMarker)) throw new Error(`Browser bridge status is incomplete: ${bridgeStatusMarker}`);
 }
-for (const bridgeUiMarker of ["extensionActive ? '已启用'", '当前为本地测试版', '安装测试扩展', '检测连接', 'Chrome Web Store']) {
+for (const bridgeUiMarker of ["isStoreExtension", '开发测试版', '打开本地扩展文件', '检测连接', 'Chrome Web Store', '打开 Chrome 商店', 'extensionTestDetails']) {
   if (!app.includes(bridgeUiMarker)) throw new Error(`Browser bridge status UI is incomplete: ${bridgeUiMarker}`);
 }
 
@@ -347,7 +348,7 @@ for (const friendlyErrorMarker of ['当前浏览器会话不可用', "classifyTa
   if (!app.includes(friendlyErrorMarker)) throw new Error(`Friendly task error presentation is incomplete: ${friendlyErrorMarker}`);
 }
 if (!styles.includes('.toast { position: fixed; z-index: 80; top: 12px; left: 50%;') || !styles.includes('background: color-mix(in srgb, var(--surface) 96%, transparent)')) throw new Error('Toast must use the compact light top-center treatment');
-for (const browserAuthMarker of ["invoke('open_source_login'", "invoke('finish_source_login'", '需要登录的视频', '不会读取你日常浏览器中的账号', '--cookies-from-browser']) {
+for (const browserAuthMarker of ["invoke('open_source_login'", "invoke('finish_source_login'", '需要登录的视频', '不会读取日常浏览器账号', '--cookies-from-browser']) {
   if (!`${app}\n${rust}`.includes(browserAuthMarker)) throw new Error(`Browser session login flow is incomplete: ${browserAuthMarker}`);
 }
 for (const publicDownloadMarker of ['let public_result = execute_download_task(', 'source_id.clone()', 'task_error_code(&message, false) == "AUTH_REQUIRED"', 'browser_retry.is_some()']) {

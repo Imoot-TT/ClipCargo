@@ -27,6 +27,7 @@ const harnessState = {
   calls: [],
 };
 const componentsMissing = new URLSearchParams(location.search).has('missing-components');
+const harnessStoreExtension = new URLSearchParams(location.search).has('store-extension');
 let harnessYtDlpReady = !componentsMissing;
 let harnessFfmpegReady = !componentsMissing;
 let harnessInstallCancelled = false;
@@ -38,6 +39,7 @@ let harnessExtensionVerified = new URLSearchParams(location.search).has('bridge-
 let harnessExtensionActive = new URLSearchParams(location.search).has('bridge-active');
 const harnessBridgeHostInstalled = !new URLSearchParams(location.search).has('bridge-host-missing');
 const harnessPollProgress = new URLSearchParams(location.search).has('poll-progress');
+const harnessSlowBridge = new URLSearchParams(location.search).has('slow-bridge');
 let harnessSourceBrowser = null;
 let harnessSourceLoginOpen = false;
 let harnessDownloadsDirectory = 'C:\\ClipCargo\\素材';
@@ -83,12 +85,15 @@ window.__TAURI__ = {
       if (command === 'list_video_editors') return new URLSearchParams(location.search).has('no-editor') ? [] : [{ id: 'jianying-pro', name: '剪映专业版', verified: true }];
       if (command === 'import_media_to_editor') return { editorName: '剪映专业版', importedCount: 1 };
       if (command === 'import_asset_package_to_editor') return { editorName: '剪映专业版', importedCount: 4 };
-      if (command === 'bridge_status') return { hostName: 'net.clipcargo.native', queuePath: '测试队列', protocolVersion: 1, hostInstalled: harnessBridgeHostInstalled, registered: harnessBridgeRegistered, extensionId: harnessBridgeRegistered ? 'dpogajmenckmdbpacaoilnhhdcjpbheb' : null, extensionVerified: harnessExtensionVerified, extensionActive: harnessExtensionActive, extensionVersion: harnessExtensionVerified ? '0.1.0' : null, lastSeenAt: harnessExtensionVerified ? 1794210400 : null };
+      if (command === 'bridge_status') {
+        if (harnessSlowBridge) await new Promise((resolve) => setTimeout(resolve, 700));
+        return { hostName: 'net.clipcargo.native', queuePath: 'ClipCargo 队列', protocolVersion: 1, hostInstalled: harnessBridgeHostInstalled, registered: harnessBridgeRegistered, extensionId: harnessBridgeRegistered ? (harnessStoreExtension ? 'maenmnckhgckmkcaijmpeghkcfhchiha' : 'dpogajmenckmdbpacaoilnhhdcjpbheb') : null, extensionVerified: harnessExtensionVerified, extensionActive: harnessExtensionActive, extensionVersion: harnessExtensionVerified ? (harnessStoreExtension ? '0.1.6' : '0.1.0') : null, extensionPackageVersion: '0.1.0', debugBuild: !harnessStoreExtension, lastSeenAt: harnessExtensionVerified ? 1794210400 : null };
+      }
       if (command === 'component_status') {
         const ytDlpBytes = harnessYtDlpReady ? 18_874_368 : 0;
         const ffmpegBytes = harnessFfmpegReady ? 188_743_680 : 0;
         const denoBytes = harnessDenoReady ? 92_274_688 : 0;
-        return { ytDlpReady: harnessYtDlpReady, ytDlpVersion: harnessYtDlpReady ? '2026.10.26' : null, ytDlpBytes, ffmpegReady: harnessFfmpegReady, ffmpegVersion: harnessFfmpegReady ? '9.0.2' : null, ffmpegBytes, denoReady: harnessDenoReady, denoVersion: harnessDenoReady ? '2.x' : null, denoBytes, totalBytes: ytDlpBytes + ffmpegBytes + denoBytes, installing: harnessInstallPhase !== 'idle', installPhase: harnessInstallPhase, installProgressPercent: harnessInstallPhase === 'idle' ? null : harnessInstallProgress, storageFreeBytes: 10_737_418_240, componentDirectory: '测试组件目录', downloadsDirectory: harnessDownloadsDirectory };
+        return { ytDlpReady: harnessYtDlpReady, ytDlpVersion: harnessYtDlpReady ? '2026.10.26' : null, ytDlpBytes, ffmpegReady: harnessFfmpegReady, ffmpegVersion: harnessFfmpegReady ? '9.0.2' : null, ffmpegBytes, denoReady: harnessDenoReady, denoVersion: harnessDenoReady ? '2.x' : null, denoBytes, totalBytes: ytDlpBytes + ffmpegBytes + denoBytes, installing: harnessInstallPhase !== 'idle', installPhase: harnessInstallPhase, installProgressPercent: harnessInstallPhase === 'idle' ? null : harnessInstallProgress, storageFreeBytes: 10_737_418_240, componentDirectory: 'C:\\ClipCargo\\工具', downloadsDirectory: harnessDownloadsDirectory };
       }
       if (command === 'component_install_status') return { installing: harnessInstallPhase !== 'idle', installPhase: harnessInstallPhase, installProgressPercent: harnessInstallPhase === 'idle' ? null : harnessInstallProgress };
       if (command === 'install_yt_dlp') {
@@ -123,7 +128,8 @@ window.__TAURI__ = {
       if (command === 'finish_source_login') { harnessSourceLoginOpen = false; return { configured: true, browser: harnessSourceBrowser, loginOpen: false }; }
       if (command === 'set_source_browser') { harnessSourceBrowser = null; harnessSourceLoginOpen = false; return { configured: false, browser: null, loginOpen: false }; }
       if (command === 'set_downloads_directory') { harnessDownloadsDirectory = args.directory; return harnessDownloadsDirectory; }
-      if (command === 'open_downloads_directory' || command === 'open_components_directory') return null;
+      if (command === 'set_components_directory') return args.directory;
+      if (command === 'open_downloads_directory' || command === 'open_components_directory' || command === 'open_extension_store') return null;
       if (command === 'open_extension_directory') {
         if (!harnessBridgeHostInstalled) throw new Error('本地桥接程序未安装，当前构建不能连接浏览器扩展。');
         harnessBridgeRegistered = true;

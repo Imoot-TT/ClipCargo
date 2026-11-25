@@ -1,3 +1,5 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{

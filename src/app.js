@@ -16,6 +16,32 @@ async function chooseDownloadDirectory() {
   if (typeof openNativeFileDialog !== 'function') throw new Error('系统文件夹选择器不可用，请重新安装完整版本。');
   return openNativeFileDialog({ multiple: false, directory: true, defaultPath: state.components?.downloadsDirectory || undefined });
 }
+
+async function chooseComponentsDirectory() {
+  if (typeof openNativeFileDialog !== 'function') throw new Error('系统文件夹选择器不可用，请重新安装完整版本。');
+  return openNativeFileDialog({ multiple: false, directory: true, defaultPath: state.components?.componentDirectory || undefined });
+}
+
+const DEVELOPMENT_EXTENSION_ID = 'dpogajmenckmdbpacaoilnhhdcjpbheb';
+const STORE_EXTENSION_ID = 'maenmnckhgckmkcaijmpeghkcfhchiha';
+
+function setButtonBusy(button, label) {
+  if (!(button instanceof HTMLButtonElement)) return;
+  button.dataset.busyOriginal = button.innerHTML;
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  button.innerHTML = `${icon('refresh-cw')}${escapeHtml(label)}`;
+}
+
+function clearButtonBusy(button) {
+  if (!(button instanceof HTMLButtonElement)) return;
+  button.disabled = false;
+  button.removeAttribute('aria-busy');
+  if (button.dataset.busyOriginal) {
+    button.innerHTML = button.dataset.busyOriginal;
+    delete button.dataset.busyOriginal;
+  }
+}
 const main = document.querySelector('#main');
 const count = document.querySelector('#inbox-count');
 const taskCount = document.querySelector('#task-count');
@@ -132,7 +158,7 @@ function savePreferences() {
 savePreferences();
 
 const savedView = localStorage.getItem('clipcargo:last-view');
-const state = { view: ['inbox', 'tasks', 'library', 'browser'].includes(savedView) ? savedView : 'inbox', items: [], jobs: [], derivatives: [], projects: [{ name: '未分类', isSystem: true, itemCount: 0 }], filter: 'all', projectFilter: 'all', inboxPage: 1, taskFilter: 'active', taskPage: 1, libraryView: 'projects', librarySourceJob: null, libraryQuery: '', librarySort: 'newest', libraryProject: 'all', libraryKind: 'all', libraryPage: 1, editor: null, bridge: null, components: null, authConfigured: false, authBrowser: null, authLoginOpen: false, authRetryJobId: null, loading: true, editingProject: null, pendingProjectDelete: null, pendingLibraryRemoval: null, pendingLibraryImpact: null, pendingInboxRemoval: null, pendingBatchRemoval: false, pendingComponentRemoval: null, relinkTarget: null };
+const state = { view: ['inbox', 'tasks', 'library', 'browser'].includes(savedView) ? savedView : 'inbox', items: [], jobs: [], derivatives: [], projects: [{ name: '未分类', isSystem: true, itemCount: 0 }], filter: 'all', projectFilter: 'all', inboxPage: 1, taskFilter: 'active', taskPage: 1, libraryView: 'projects', librarySourceJob: null, libraryQuery: '', librarySort: 'newest', libraryProject: 'all', libraryKind: 'all', libraryPage: 1, editor: null, bridge: null, components: null, authConfigured: false, authBrowser: null, authLoginOpen: false, authRetryJobId: null, bridgeChecking: false, loading: true, editingProject: null, pendingProjectDelete: null, pendingLibraryRemoval: null, pendingLibraryImpact: null, pendingInboxRemoval: null, pendingBatchRemoval: false, pendingComponentRemoval: null, relinkTarget: null };
 let toastTimer;
 let librarySearchTimer;
 let projectActiveIndex = -1;
@@ -986,24 +1012,50 @@ function renderBrowser() {
   const bridgeReady = Boolean(bridge?.registered);
   const extensionVerified = Boolean(bridge?.extensionVerified);
   const extensionActive = Boolean(bridge?.extensionActive);
+  const activeExtensionId = extensionVerified ? bridge?.extensionId : null;
+  const isStoreExtension = activeExtensionId === STORE_EXTENSION_ID;
+  const isDevelopmentExtension = activeExtensionId === DEVELOPMENT_EXTENSION_ID;
+  const showDeveloperExtensionFlow = isDevelopmentExtension || (bridge?.debugBuild === true && !extensionVerified);
   const extensionPackageVersion = bridge?.extensionPackageVersion || '';
   const extensionNeedsReload = Boolean(
-    extensionVerified
+    isDevelopmentExtension
     && extensionPackageVersion
     && bridge?.extensionVersion
     && bridge.extensionVersion !== extensionPackageVersion,
   );
   const bridgeHostInstalled = bridge?.hostInstalled === true;
-  const bridgeBadge = bridgeLoading ? '检测中…' : extensionActive ? '已启用' : extensionVerified ? '已安装' : bridgeReady ? '等待浏览器确认' : bridgeHostInstalled ? '待安装' : '安装文件缺失';
+  const bridgeBadge = bridgeLoading
+    ? '检测中…'
+    : extensionActive
+      ? (isStoreExtension ? '商店版已启用' : isDevelopmentExtension ? '测试版已启用' : '已启用')
+      : extensionVerified
+        ? (isStoreExtension ? '商店版已安装' : isDevelopmentExtension ? '测试版已安装' : '已安装')
+        : bridgeHostInstalled ? '待安装' : '桥接未就绪';
   const extensionDetail = bridgeLoading
     ? '正在读取扩展和桌面连接状态…'
     : extensionNeedsReload
-      ? `浏览器正在使用 ${escapeHtml(bridge.extensionVersion)}；随 ClipCargo 提供的是 ${escapeHtml(extensionPackageVersion)}，请在扩展管理页点“重新加载”。`
+      ? `开发测试扩展 ${escapeHtml(bridge.extensionVersion)} 与本地文件 ${escapeHtml(extensionPackageVersion)} 不一致，请重新加载本地扩展文件。`
+      : isStoreExtension
+      ? `Chrome Web Store 版 ${escapeHtml(bridge.extensionVersion || '未知')} · ${extensionActive ? '已连接 ClipCargo' : '等待浏览器连接'}`
       : extensionActive
-      ? `扩展版本 ${escapeHtml(bridge.extensionVersion || '未知')} · 最近通信 ${escapeHtml(formatTime(bridge.lastSeenAt))}`
+      ? `${isDevelopmentExtension ? '开发测试版' : '扩展'} ${escapeHtml(bridge.extensionVersion || '未知')} · 最近通信 ${escapeHtml(formatTime(bridge.lastSeenAt))}`
       : extensionVerified
-        ? `扩展版本 ${escapeHtml(bridge.extensionVersion || '未知')} · 等待浏览器重新连接`
-        : '安装扩展后，视频卡片会显示 ClipCargo 浮标。';
+        ? `扩展 ${escapeHtml(bridge.extensionVersion || '未知')} · 等待浏览器重新连接`
+        : bridgeHostInstalled
+          ? '尚未检测到 Chrome Web Store 扩展，安装后视频卡片会显示 ClipCargo 浮标。'
+          : '桌面桥接尚未准备好，请重新安装完整版本。';
+  const extensionDistributionNote = showDeveloperExtensionFlow
+    ? '<span>开发测试版 · 仅供开发者使用</span>'
+    : isStoreExtension
+      ? ''
+      : '<span>未检测到 Chrome Web Store 扩展，请先安装商店版。</span>';
+  const extensionAction = showDeveloperExtensionFlow
+    ? `<button class="button" data-action="open-extension" ${bridgeHostInstalled ? '' : 'disabled'}>${icon('folder')}打开本地扩展文件</button>`
+    : `<button class="button primary" data-action="open-extension-store">${icon('globe-2')}打开 Chrome 商店</button>`;
+  const extensionCheckAction = state.bridgeChecking
+    ? `<button class="button" data-action="check-extension" disabled aria-busy="true" aria-label="正在检测…">${icon('refresh-cw')}正在检测…</button>`
+    : `<button class="button" data-action="check-extension" ${bridgeHostInstalled ? '' : 'disabled'}>${icon('refresh-cw')}检测连接</button>`;
+  const extensionTestDetails = showDeveloperExtensionFlow ? '<details class="setup-details"><summary>开发者测试说明</summary><p>本地测试扩展只用于开发验证，不代表商店用户安装的版本。</p><ol><li>点击“打开本地扩展文件”，在浏览器扩展页开启开发者模式。</li><li>选择软件释放的扩展文件夹并加载。</li><li>开发测试时保持开发者模式开启；普通用户不需要这一步。</li></ol></details>' : '';
   const installPhaseText = { downloading: '正在下载', verifying: '正在校验', installing: '正在安装' }[components?.installPhase] || '正在准备';
   const installProgress = Number.isFinite(components?.installProgressPercent) ? Math.max(0, Math.min(100, components.installProgressPercent)) : 0;
   const installingTitle = componentInstallPlans[activeComponentInstallKind]?.title || '所需工具';
@@ -1017,12 +1069,12 @@ function renderBrowser() {
     <div class="settings-grid">
       <div class="settings-column">
         <section class="setting-card"><div class="setting-icon">${icon('settings')}</div><div class="setting-body"><div class="setting-title"><h2>常规</h2></div><div class="setting-fields"><label>主题<select id="setting-theme" class="field-control"><option value="system" ${preferences.theme === 'system' ? 'selected' : ''}>跟随系统</option><option value="light" ${preferences.theme === 'light' ? 'selected' : ''}>浅色</option><option value="dark" ${preferences.theme === 'dark' ? 'selected' : ''}>深色</option></select></label><label>默认项目<select id="setting-default-project" class="field-control">${state.projects.map((project) => `<option value="${escapeHtml(project.name)}" ${preferredProject() === project.name ? 'selected' : ''}>${escapeHtml(project.name)}</option>`).join('')}</select></label><label>同时下载<select id="setting-download-concurrency" class="field-control"><option value="1" ${preferences.downloadConcurrency === 1 ? 'selected' : ''}>1 个任务</option><option value="2" ${preferences.downloadConcurrency === 2 ? 'selected' : ''}>2 个任务</option><option value="3" ${preferences.downloadConcurrency === 3 ? 'selected' : ''}>3 个任务</option><option value="4" ${preferences.downloadConcurrency === 4 ? 'selected' : ''}>4 个任务</option></select></label><label>默认输出<select id="setting-download-preset" class="field-control"><option value="package" ${preferences.downloadPreset === 'package' ? 'selected' : ''}>完整素材包</option><option value="video" ${preferences.downloadPreset === 'video' ? 'selected' : ''}>兼容 MP4</option><option value="source" ${preferences.downloadPreset === 'source' ? 'selected' : ''}>保留来源格式</option><option value="audio" ${preferences.downloadPreset === 'audio' ? 'selected' : ''}>只要音频</option></select></label>${preferences.downloadPreset !== 'audio' ? `<label>默认清晰度<select id="setting-download-quality" class="field-control"><option value="1080" ${preferences.downloadQuality === '1080' ? 'selected' : ''}>最高 1080p</option><option value="720" ${preferences.downloadQuality === '720' ? 'selected' : ''}>最高 720p</option><option value="best" ${preferences.downloadQuality === 'best' ? 'selected' : ''}>最佳可用</option></select></label><label class="check-setting"><input id="setting-save-subtitles" type="checkbox" ${preferences.saveSubtitles ? 'checked' : ''} ${preferences.downloadPreset === 'package' ? 'disabled' : ''}>默认保存字幕</label>` : ''}</div></div></section>
-        <section class="setting-card"><div class="setting-icon">${icon('puzzle')}</div><div class="setting-body"><div class="setting-title"><h2>浏览器收集</h2><span class="state-pill ${bridgeLoading ? 'neutral' : extensionVerified ? 'success' : bridgeHostInstalled ? 'neutral' : 'warning'}">${bridgeBadge}</span></div><small class="setting-status-detail">${extensionDetail}</small><div class="extension-distribution-note"><strong>当前为本地测试版</strong><span>关闭开发者模式后，Chrome 会停用未签名扩展；正式使用需从 Chrome Web Store 安装。</span></div><div class="setting-actions"><button class="button ${extensionVerified ? '' : 'primary'}" data-action="open-extension" ${bridgeHostInstalled ? '' : 'disabled'}>${icon('puzzle')}${extensionNeedsReload ? '打开更新文件' : extensionVerified ? '打开测试文件' : '安装测试扩展'}</button><button class="button" data-action="check-extension" ${bridgeHostInstalled ? '' : 'disabled'}>${icon('refresh-cw')}检测连接</button></div><details class="setup-details"><summary>测试版安装说明</summary><p>当前本地版本使用“加载已解压的扩展程序”，仅适合开发测试。</p><ol><li>点击“安装测试扩展”，打开软件释放的扩展文件夹。</li><li>在 Chrome 或 Edge 扩展程序页面开启开发者模式，点击“加载已解压的扩展程序”。</li><li>保持开发者模式开启；关闭后浏览器会停用这个本地测试扩展。</li></ol><small>正式分发需上架 Chrome Web Store；企业环境可由管理员策略部署。</small></details></div></section>
+        <section class="setting-card"><div class="setting-icon">${icon('puzzle')}</div><div class="setting-body"><div class="setting-title"><h2>浏览器收集</h2><span class="state-pill ${bridgeLoading ? 'neutral' : extensionActive ? 'success' : extensionVerified ? 'neutral' : 'warning'}">${bridgeBadge}</span></div><small class="setting-status-detail">${extensionDetail}</small>${extensionDistributionNote ? `<div class="extension-distribution-note">${extensionDistributionNote}</div>` : ''}<div class="setting-actions">${extensionAction}${extensionCheckAction}</div>${extensionTestDetails}</div></section>
       </div>
       <div class="settings-column">
-        <section id="auth-settings" class="setting-card" tabindex="-1"><div class="setting-icon">${icon('key-round')}</div><div class="setting-body"><div class="setting-title"><h2>需要登录的视频</h2><span class="state-pill ${state.authConfigured ? 'success' : 'neutral'}">${state.authLoginOpen ? '等待完成登录' : state.authConfigured ? `${state.authBrowser === 'edge' ? 'Edge' : 'Chrome'} 已准备` : '仅下载公开内容'}</span></div><p class="setting-hint">遇到网站登录限制时，使用单独的登录窗口；不会读取你日常浏览器中的账号。</p><div class="setting-actions">${state.authLoginOpen ? `<button class="button primary" data-action="finish-source-login">我已完成登录</button><button class="button" data-action="clear-source-browser">取消</button>` : `<button class="button" data-action="open-source-login" data-browser="chrome">在 Chrome 中登录</button><button class="button" data-action="open-source-login" data-browser="edge">在 Edge 中登录</button>${state.authConfigured ? '<button class="button danger-text" data-action="clear-source-browser">清除登录状态</button>' : ''}`}</div></div></section>
-        <section class="setting-card"><div class="setting-icon">${icon('hard-drive')}</div><div class="setting-body"><div class="setting-title"><h2>文件保存位置</h2><span class="state-pill ${components?.storageFreeBytes == null ? 'neutral' : components.storageFreeBytes < 536870912 ? 'warning' : 'success'}">${components?.storageFreeBytes == null ? '等待检测' : `${formatBytes(components.storageFreeBytes)} 可用`}</span></div><div class="storage-path" title="${escapeHtml(components?.downloadsDirectory || '')}">${escapeHtml(components?.downloadsDirectory || '尚未确定')}</div><div class="setting-actions"><button class="button primary" data-action="choose-downloads-directory">${icon('folder')}更改位置</button><button class="button" data-action="open-downloads-directory">${icon('external-link')}打开文件夹</button><button class="button" data-action="open-components">工具与许可</button></div></div></section>
-        <section id="components-settings" class="setting-card components-card" tabindex="-1"><div class="setting-icon">${icon('blocks')}</div><div class="setting-body"><div class="setting-title"><h2>所需工具</h2><span class="state-pill neutral">按需安装${components?.totalBytes ? ` · ${formatBytes(components.totalBytes)}` : ''}</span></div>${components?.installing ? `<div class="component-install-progress" role="status" aria-live="polite"><div><strong>${escapeHtml(installingTitle)} · ${componentCancelRequested ? '正在取消…' : installPhaseText}</strong><span>${installProgress}%</span></div><progress max="100" value="${installProgress}">${installProgress}%</progress><button class="button compact" data-action="cancel-active-component-install" ${componentCancelRequested ? 'disabled' : ''}>${componentCancelRequested ? '正在取消…' : '取消安装'}</button></div>` : componentInstallFailure ? `<div class="component-install-failure" role="alert"><span>${escapeHtml(componentInstallFailure)}</span><button class="button compact" data-action="dismiss-component-error">关闭</button></div>` : ''}<div class="component-list">
+        <section id="auth-settings" class="setting-card" tabindex="-1"><div class="setting-icon">${icon('key-round')}</div><div class="setting-body"><div class="setting-title"><h2>需要登录的视频</h2><span class="state-pill ${state.authLoginOpen ? 'warning' : state.authConfigured ? 'neutral' : 'neutral'}">${state.authLoginOpen ? '等待登录' : state.authConfigured ? '已保存登录配置' : '未设置'}</span></div><p class="setting-hint">仅在下载需要登录时，用独立窗口保存配置；不会读取日常浏览器账号。</p><div class="setting-actions">${state.authLoginOpen ? `<button class="button primary" data-action="finish-source-login">我已完成登录</button><button class="button" data-action="clear-source-browser">取消</button>` : `<button class="button" data-action="open-source-login" data-browser="chrome">${state.authConfigured && state.authBrowser === 'chrome' ? '重新打开 Chrome 登录' : '在 Chrome 中登录'}</button><button class="button" data-action="open-source-login" data-browser="edge">${state.authConfigured && state.authBrowser === 'edge' ? '重新打开 Edge 登录' : '在 Edge 中登录'}</button>${state.authConfigured ? '<button class="button danger-text" data-action="clear-source-browser">清除登录配置</button>' : ''}`}</div></div></section>
+        <section class="setting-card"><div class="setting-icon">${icon('hard-drive')}</div><div class="setting-body"><div class="setting-title"><h2>文件保存位置</h2><span class="state-pill ${components?.storageFreeBytes == null ? 'neutral' : components.storageFreeBytes < 536870912 ? 'warning' : 'success'}">${components?.storageFreeBytes == null ? '等待检测' : `${formatBytes(components.storageFreeBytes)} 可用`}</span></div><div class="storage-path" title="${escapeHtml(components?.downloadsDirectory || '')}">${escapeHtml(components?.downloadsDirectory || '尚未确定')}</div><div class="setting-actions"><button class="button primary" data-action="choose-downloads-directory">${icon('folder')}更改位置</button><button class="button" data-action="open-downloads-directory">${icon('external-link')}打开文件夹</button></div></div></section>
+        <section id="components-settings" class="setting-card components-card" tabindex="-1"><div class="setting-icon">${icon('blocks')}</div><div class="setting-body"><div class="setting-title"><h2>所需工具</h2><span class="state-pill neutral">按需安装${components?.totalBytes ? ` · ${formatBytes(components.totalBytes)}` : ''}</span></div><div class="component-location"><div><strong>工具安装位置</strong><small title="${escapeHtml(components?.componentDirectory || '')}">${escapeHtml(components?.componentDirectory || '尚未确定')}</small></div><div class="setting-actions"><button class="button compact" data-action="choose-components-directory">${icon('folder')}更改位置</button><button class="button compact" data-action="open-components">${icon('external-link')}打开工具目录</button></div></div>${components?.installing ? `<div class="component-install-progress" role="status" aria-live="polite"><div><strong>${escapeHtml(installingTitle)} · ${componentCancelRequested ? '正在取消…' : installPhaseText}</strong><span>${installProgress}%</span></div><progress max="100" value="${installProgress}">${installProgress}%</progress><button class="button compact" data-action="cancel-active-component-install" ${componentCancelRequested ? 'disabled' : ''}>${componentCancelRequested ? '正在取消…' : '取消安装'}</button></div>` : componentInstallFailure ? `<div class="component-install-failure" role="alert"><span>${escapeHtml(componentInstallFailure)}</span><button class="button compact" data-action="dismiss-component-error">关闭</button></div>` : ''}<div class="component-list">
         ${componentRow('yt-dlp', '下载引擎', parserReady, parserReady ? `版本 ${escapeHtml(compactComponentVersion(components.ytDlpVersion))} · ${formatBytes(components.ytDlpBytes)}` : '识别视频链接并下载原画质内容')}
         ${componentRow('deno', '网站兼容工具', components?.denoReady, components?.denoReady ? `版本 ${escapeHtml(compactComponentVersion(components.denoVersion))} · ${formatBytes(components.denoBytes)}` : '支持部分需要网页脚本解析的网站，安装后自动使用')}
         ${componentRow('ffmpeg', '视频处理工具', components?.ffmpegReady, components?.ffmpegReady ? `版本 ${escapeHtml(compactComponentVersion(components.ffmpegVersion))} · ${formatBytes(components.ffmpegBytes)}` : '合并音画、转 MP4、裁剪和提取音频')}
@@ -1874,17 +1926,17 @@ document.addEventListener('click', async (event) => {
     } catch (error) { button.disabled = false; notify(readableError(error)); }
   } else if (button.dataset.action === 'open-source-login') {
     try {
-      button.disabled = true;
+      setButtonBusy(button, '正在打开登录窗口…');
       const result = await invoke('open_source_login', { browser: button.dataset.browser, jobId: state.authRetryJobId });
       state.authConfigured = Boolean(result.configured);
       state.authBrowser = result.browser || null;
       state.authLoginOpen = Boolean(result.loginOpen);
       render();
       notify('请在新窗口完成网站登录，然后回到 ClipCargo 确认');
-    } catch (error) { notify(readableError(error)); }
+    } catch (error) { clearButtonBusy(button); notify(readableError(error)); }
   } else if (button.dataset.action === 'finish-source-login') {
     try {
-      button.disabled = true;
+      setButtonBusy(button, '正在验证登录配置…');
       const result = await invoke('finish_source_login');
       state.authConfigured = Boolean(result.configured);
       state.authBrowser = result.browser || null;
@@ -1897,8 +1949,8 @@ document.addEventListener('click', async (event) => {
         await refreshInbox({ quiet: true });
       }
       render();
-      notify(retryJobId ? '登录状态已准备，原任务已重新排队' : '登录状态已准备，遇到登录限制时会自动重试');
-    } catch (error) { button.disabled = false; notify(readableError(error)); }
+      notify(retryJobId ? '登录配置已保存，原任务已重新排队' : '登录配置已保存，遇到登录限制时会自动使用');
+    } catch (error) { clearButtonBusy(button); notify(readableError(error)); }
   } else if (button.dataset.action === 'clear-source-browser') {
     try {
       const result = await invoke('set_source_browser', { browser: null });
@@ -1912,6 +1964,16 @@ document.addEventListener('click', async (event) => {
   } else if (button.dataset.action === 'open-components') {
     try { await invoke('open_components_directory'); }
     catch (error) { notify(readableError(error)); }
+  } else if (button.dataset.action === 'choose-components-directory') {
+    try {
+      setButtonBusy(button, '正在选择…');
+      const directory = await chooseComponentsDirectory();
+      if (!directory) { clearButtonBusy(button); return; }
+      await invoke('set_components_directory', { directory });
+      state.components = await invoke('component_status');
+      render();
+      notify('工具安装位置已更新');
+    } catch (error) { clearButtonBusy(button); notify(readableError(error)); }
   } else if (button.dataset.action === 'open-downloads-directory') {
     try { await invoke('open_downloads_directory'); }
     catch (error) { notify(readableError(error)); }
@@ -1925,15 +1987,24 @@ document.addEventListener('click', async (event) => {
       notify('新的下载和处理结果将保存到所选文件夹');
     } catch (error) { notify(readableError(error)); }
   } else if (button.dataset.action === 'open-extension') {
-    try { await invoke('open_extension_directory'); await refreshSettingsState(); render(); notify('扩展安装文件已打开，桌面连接已自动准备'); }
-    catch (error) { notify(readableError(error)); }
+    try { setButtonBusy(button, '正在打开…'); await invoke('open_extension_directory'); await refreshSettingsState(); render(); notify('本地扩展文件已打开'); }
+    catch (error) { clearButtonBusy(button); notify(readableError(error)); }
+  } else if (button.dataset.action === 'open-extension-store') {
+    try { setButtonBusy(button, '正在打开商店…'); await invoke('open_extension_store'); clearButtonBusy(button); notify('已打开 Chrome 网上应用店'); }
+    catch (error) { clearButtonBusy(button); notify(readableError(error)); }
   } else if (button.dataset.action === 'check-extension') {
+    state.bridgeChecking = true;
+    render();
     try {
-      await refreshSettingsState(); render();
+      await Promise.all([
+        refreshSettingsState(),
+        new Promise((resolve) => setTimeout(resolve, 420)),
+      ]);
       if (state.bridge?.extensionActive) notify('已检测到浏览器扩展正在运行');
       else if (state.bridge?.extensionVerified) notify('扩展已安装；打开浏览器后会自动恢复连接');
       else notify('尚未检测到扩展，请确认已在浏览器中加载并开启');
     } catch (error) { notify(readableError(error)); }
+    finally { state.bridgeChecking = false; render(); }
   } else if (button.dataset.inboxDetail) {
     openInboxDetail(Number(button.dataset.inboxDetail));
   } else if (button.dataset.resolve) {
