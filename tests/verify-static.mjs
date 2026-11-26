@@ -165,7 +165,7 @@ for (const projectSuggestionMarker of ['project-options', 'canonicalProjectName'
 for (const compactAddDialogMarker of ['class="dialog add-link-dialog"', 'rows="4"', '.add-link-dialog { width: min(460px', '.add-link-dialog textarea { min-height: 88px']) {
   if (!`${html}\n${styles}`.includes(compactAddDialogMarker)) throw new Error(`Compact add-link dialog regressed: ${compactAddDialogMarker}`);
 }
-for (const authLabelMarker of ['需要登录的视频', '在 Chrome 中登录', '在 Edge 中登录', '我已完成登录', '已保存登录配置', '不会读取日常浏览器账号']) {
+for (const authLabelMarker of ['需要登录的视频', 'setting-auth-browser', '打开登录窗口', '检查登录状态', '已验证登录', 'browsers']) {
   if (!app.includes(authLabelMarker)) throw new Error(`Browser session wording regressed: ${authLabelMarker}`);
 }
 for (const downloadLocationMarker of ['chooseDownloadDirectory', "invoke('set_downloads_directory'", "invoke('open_downloads_directory'", 'download-location.txt', 'managed_roots', 'allow_managed_roots', 'chooseComponentsDirectory', "invoke('set_components_directory'", 'component-location.txt']) {
@@ -186,6 +186,12 @@ for (const bridgeStatusMarker of ['struct BridgeStatus', 'extension_ids_from_man
 }
 for (const bridgeUiMarker of ["isStoreExtension", '开发测试版', '打开本地扩展文件', '检测连接', 'Chrome Web Store', '打开 Chrome 商店', 'extensionTestDetails']) {
   if (!app.includes(bridgeUiMarker)) throw new Error(`Browser bridge status UI is incomplete: ${bridgeUiMarker}`);
+}
+for (const bridgeInteractionMarker of ['bridgeChecking', 'aria-busy="true"', 'setTimeout(resolve, 2000)']) {
+  if (!app.includes(bridgeInteractionMarker)) throw new Error(`Browser bridge loading interaction is incomplete: ${bridgeInteractionMarker}`);
+}
+for (const compactSettingsMarker of ['.button[aria-busy="true"] .ui-icon', '.settings-grid { gap: 8px; }', 'white-space: nowrap']) {
+  if (!styles.includes(compactSettingsMarker)) throw new Error(`Compact settings layout is incomplete: ${compactSettingsMarker}`);
 }
 
 const popup = readFileSync(new URL('../extension/popup.html', import.meta.url), 'utf8');
@@ -348,7 +354,7 @@ for (const friendlyErrorMarker of ['当前浏览器会话不可用', "classifyTa
   if (!app.includes(friendlyErrorMarker)) throw new Error(`Friendly task error presentation is incomplete: ${friendlyErrorMarker}`);
 }
 if (!styles.includes('.toast { position: fixed; z-index: 80; top: 12px; left: 50%;') || !styles.includes('background: color-mix(in srgb, var(--surface) 96%, transparent)')) throw new Error('Toast must use the compact light top-center treatment');
-for (const browserAuthMarker of ["invoke('open_source_login'", "invoke('finish_source_login'", '需要登录的视频', '不会读取日常浏览器账号', '--cookies-from-browser']) {
+for (const browserAuthMarker of ["invoke('open_source_login'", "invoke('finish_source_login'", '需要登录的视频', '--cookies-from-browser', 'browser_has_authenticated_cookie', 'BROWSER_DEFINITIONS', '没有检测到有效的登录会话']) {
   if (!`${app}\n${rust}`.includes(browserAuthMarker)) throw new Error(`Browser session login flow is incomplete: ${browserAuthMarker}`);
 }
 for (const publicDownloadMarker of ['let public_result = execute_download_task(', 'source_id.clone()', 'task_error_code(&message, false) == "AUTH_REQUIRED"', 'browser_retry.is_some()']) {

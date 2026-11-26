@@ -43,6 +43,15 @@ const harnessSlowBridge = new URLSearchParams(location.search).has('slow-bridge'
 let harnessSourceBrowser = null;
 let harnessSourceLoginOpen = false;
 let harnessDownloadsDirectory = 'C:\\ClipCargo\\素材';
+const harnessAuthBrowsers = [
+  { id: 'chrome', label: 'Chrome', installed: true },
+  { id: 'edge', label: 'Edge', installed: true },
+  { id: 'firefox', label: 'Firefox', installed: false },
+  { id: 'brave', label: 'Brave', installed: false },
+  { id: 'vivaldi', label: 'Vivaldi', installed: false },
+  { id: 'opera', label: 'Opera', installed: false },
+  { id: 'chromium', label: 'Chromium', installed: false },
+];
 
 function clone(value) { return structuredClone(value); }
 function recountProjects() {
@@ -123,10 +132,10 @@ window.__TAURI__ = {
         else throw new Error('未知工具，未执行卸载。');
         return 3;
       }
-      if (command === 'source_auth_status') return { configured: Boolean(harnessSourceBrowser), browser: harnessSourceBrowser, loginOpen: harnessSourceLoginOpen };
-      if (command === 'open_source_login') { harnessSourceBrowser = args.browser; harnessSourceLoginOpen = true; return { configured: false, browser: harnessSourceBrowser, loginOpen: true }; }
-      if (command === 'finish_source_login') { harnessSourceLoginOpen = false; return { configured: true, browser: harnessSourceBrowser, loginOpen: false }; }
-      if (command === 'set_source_browser') { harnessSourceBrowser = null; harnessSourceLoginOpen = false; return { configured: false, browser: null, loginOpen: false }; }
+      if (command === 'source_auth_status') return { configured: Boolean(harnessSourceBrowser), browser: harnessSourceBrowser, loginOpen: harnessSourceLoginOpen, browsers: clone(harnessAuthBrowsers) };
+      if (command === 'open_source_login') { harnessSourceBrowser = args.browser; harnessSourceLoginOpen = true; return { configured: false, browser: harnessSourceBrowser, loginOpen: true, browsers: clone(harnessAuthBrowsers) }; }
+      if (command === 'finish_source_login') { harnessSourceLoginOpen = false; return { configured: true, browser: harnessSourceBrowser, loginOpen: false, browsers: clone(harnessAuthBrowsers) }; }
+      if (command === 'set_source_browser') { harnessSourceBrowser = null; harnessSourceLoginOpen = false; return { configured: false, browser: null, loginOpen: false, browsers: clone(harnessAuthBrowsers) }; }
       if (command === 'set_downloads_directory') { harnessDownloadsDirectory = args.directory; return harnessDownloadsDirectory; }
       if (command === 'set_components_directory') return args.directory;
       if (command === 'open_downloads_directory' || command === 'open_components_directory' || command === 'open_extension_store') return null;

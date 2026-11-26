@@ -1,3 +1,5 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use rusqlite::{backup::Progress, params, Connection, DatabaseName, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -11,15 +13,61 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
-        mpsc, Arc, Mutex,
+        mpsc, Arc, Mutex, OnceLock,
     },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tauri::{menu::MenuBuilder, tray::TrayIconBuilder, Manager, State, WindowEvent};
+use tauri::{menu::MenuBuilder, tray::TrayIconBuilder, AppHandle, Manager, State, WindowEvent};
 use url::{Host, Url};
 
 const DATABASE_SCHEMA_VERSION: i64 = 7;
+
+// ClipCargo owns a browser bridge and a temporary login profile. Multiple
+// desktop processes must not run against the same profile or database: doing
+// so makes the external login window appear to open/close repeatedly.
+#[cfg(windows)]
+struct SingleInstanceGuard(*mut std::ffi::c_void);
+
+#[cfg(windows)]
+impl Drop for SingleInstanceGuard {
+    fn drop(&mut self) {
+        unsafe {
+            close_handle(self.0);
+        }
+    }
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    #[link_name = "CreateMutexW"]
+    fn create_mutex_w(
+        attributes: *mut std::ffi::c_void,
+        initial_owner: i32,
+        name: *const u16,
+    ) -> *mut std::ffi::c_void;
+    #[link_name = "GetLastError"]
+    fn get_last_error() -> u32;
+    #[link_name = "CloseHandle"]
+    fn close_handle(handle: *mut std::ffi::c_void) -> i32;
+}
+
+#[cfg(windows)]
+fn acquire_single_instance() -> Option<SingleInstanceGuard> {
+    const ERROR_ALREADY_EXISTS: u32 = 183;
+    let name = "Local\\ClipCargo\0".encode_utf16().collect::<Vec<_>>();
+    let handle = unsafe { create_mutex_w(std::ptr::null_mut(), 0, name.as_ptr()) };
+    if handle.is_null() || unsafe { get_last_error() } == ERROR_ALREADY_EXISTS {
+        if !handle.is_null() {
+            unsafe {
+                close_handle(handle);
+            }
+        }
+        return None;
+    }
+    Some(SingleInstanceGuard(handle))
+}
 
 fn external_tool_start_error(tool: &str, error: &std::io::Error) -> String {
     if error.raw_os_error() == Some(4551) {
@@ -29,6 +77,17 @@ fn external_tool_start_error(tool: &str, error: &std::io::Error) -> String {
     }
     format!("无法启动{tool}：{error}")
 }
+
+#[cfg(windows)]
+fn hide_console_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    // CREATE_NO_WINDOW: console utilities must not flash a terminal over the
+    // desktop application, including during background status checks.
+    command.creation_flags(0x0800_0000);
+}
+
+#[cfg(not(windows))]
+fn hide_console_window(_command: &mut Command) {}
 
 struct AppState {
     db: Mutex<Connection>,
@@ -56,6 +115,7 @@ struct AppState {
 struct SourceLoginSession {
     browser: String,
     profile_dir: PathBuf,
+    login_url: String,
     child: Child,
 }
 
@@ -90,7 +150,7 @@ fn safe_asset_folder_segment(value: &str, fallback: &str) -> String {
                 character
             }
         })
-        .take(96)
+        .take(72)
         .collect::<String>();
     segment = segment.trim().trim_end_matches(['.', ' ']).to_string();
     if segment.is_empty() {
@@ -145,6 +205,14 @@ fn asset_package_directory(
         &format!("item-{item_id}"),
     );
     downloads_dir.join(format!("{title} [{identity}]"))
+}
+
+fn download_filename_title_limit(media_directory: &PathBuf) -> usize {
+    let directory_length = media_directory.to_string_lossy().chars().count();
+    let reserved_filename_length = 34;
+    240usize
+        .saturating_sub(directory_length + reserved_filename_length + 1)
+        .clamp(24, 64)
 }
 
 fn asset_root_for_media(media_path: &PathBuf) -> PathBuf {
@@ -207,7 +275,9 @@ struct InstallFlagGuard<'a> {
 fn terminate_child_tree(child: &mut Child) {
     #[cfg(windows)]
     {
-        let status = Command::new("taskkill.exe")
+        let mut command = Command::new("taskkill.exe");
+        hide_console_window(&mut command);
+        let status = command
             .args(["/PID", &child.id().to_string(), "/T", "/F"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -221,6 +291,31 @@ fn terminate_child_tree(child: &mut Child) {
         let _ = child.kill();
     }
     let _ = child.wait();
+}
+
+fn close_source_login_browser(session: &mut SourceLoginSession) {
+    #[cfg(windows)]
+    {
+        // A forced taskkill tears down Chrome's renderer tree and is what
+        // produces the visible white/crash-recovery flashes. Ask Chrome to
+        // close normally first, then use the existing forceful fallback only
+        // if it does not exit promptly.
+        let mut command = Command::new("taskkill.exe");
+        hide_console_window(&mut command);
+        let _ = command
+            .args(["/PID", &session.child.id().to_string(), "/T"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        for _ in 0..30 {
+            match session.child.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) => thread::sleep(Duration::from_millis(100)),
+                Err(_) => break,
+            }
+        }
+    }
+    terminate_child_tree(&mut session.child);
 }
 
 impl Drop for InstallFlagGuard<'_> {
@@ -264,7 +359,82 @@ struct SourceAuthStatus {
     configured: bool,
     browser: Option<String>,
     login_open: bool,
+    browsers: Vec<SupportedLoginBrowser>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SupportedLoginBrowser {
+    id: String,
+    label: String,
+    installed: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BrowserDefinition {
+    id: &'static str,
+    label: &'static str,
+    relative_paths: &'static [&'static str],
+    registry_names: &'static [&'static str],
+    firefox_profile: bool,
+}
+
+const BROWSER_DEFINITIONS: &[BrowserDefinition] = &[
+    BrowserDefinition {
+        id: "chrome",
+        label: "Chrome",
+        relative_paths: &[r"Google\Chrome\Application\chrome.exe"],
+        registry_names: &["chrome.exe"],
+        firefox_profile: false,
+    },
+    BrowserDefinition {
+        id: "edge",
+        label: "Edge",
+        relative_paths: &[r"Microsoft\Edge\Application\msedge.exe"],
+        registry_names: &["msedge.exe"],
+        firefox_profile: false,
+    },
+    BrowserDefinition {
+        id: "firefox",
+        label: "Firefox",
+        relative_paths: &[r"Mozilla Firefox\firefox.exe"],
+        registry_names: &["firefox.exe"],
+        firefox_profile: true,
+    },
+    BrowserDefinition {
+        id: "brave",
+        label: "Brave",
+        relative_paths: &[r"BraveSoftware\Brave-Browser\Application\brave.exe"],
+        registry_names: &["brave.exe"],
+        firefox_profile: false,
+    },
+    BrowserDefinition {
+        id: "vivaldi",
+        label: "Vivaldi",
+        relative_paths: &[r"Vivaldi\Application\vivaldi.exe"],
+        registry_names: &["vivaldi.exe"],
+        firefox_profile: false,
+    },
+    BrowserDefinition {
+        id: "opera",
+        label: "Opera",
+        relative_paths: &[
+            r"Programs\Opera\opera.exe",
+            r"Programs\Opera\launcher.exe",
+            r"Programs\Opera GX\opera.exe",
+            r"Programs\Opera GX\launcher.exe",
+        ],
+        registry_names: &["opera.exe", "launcher.exe"],
+        firefox_profile: false,
+    },
+    BrowserDefinition {
+        id: "chromium",
+        label: "Chromium",
+        relative_paths: &[r"Chromium\Application\chrome.exe", r"Chromium\chrome.exe"],
+        registry_names: &["chromium.exe"],
+        firefox_profile: false,
+    },
+];
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1553,15 +1723,22 @@ fn remove_inbox_item(id: i64, state: State<'_, AppState>) -> Result<(), String> 
 }
 
 fn remove_inbox_record(connection: &Connection, id: i64) -> Result<(), String> {
-    let linked_jobs: i64 = connection
+    let blocking_jobs: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM download_jobs WHERE item_id=?1",
+            "SELECT COUNT(*) FROM download_jobs WHERE item_id=?1 AND (status != 'failed' OR file_path IS NOT NULL)",
             params![id],
             |row| row.get(0),
         )
         .map_err(|error| format!("检查素材关联失败：{error}"))?;
-    if linked_jobs > 0 {
-        return Err("该条目已有下载任务或本地素材，请在素材管理功能中处理，避免遗留文件。".into());
+    let blocking_derivatives: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM media_derivatives d JOIN download_jobs j ON j.id=d.parent_job_id WHERE j.item_id=?1 AND d.status IN ('queued','processing')",
+            params![id],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("检查处理任务失败：{error}"))?;
+    if blocking_jobs > 0 || blocking_derivatives > 0 {
+        return Err("该条目仍有进行中的下载或处理任务，完成后再移除。".into());
     }
     let changed = connection
         .execute("DELETE FROM inbox_items WHERE id = ?1", params![id])
@@ -1824,70 +2001,110 @@ fn source_auth_status(state: State<'_, AppState>) -> Result<SourceAuthStatus, St
         .lock()
         .map_err(|_| "浏览器登录状态不可用。".to_string())?
         .clone();
-    let browser = browser_spec
-        .as_deref()
-        .and_then(|value| value.split(':').next())
-        .map(str::to_string);
+    let configured = browser_spec.as_deref().is_some_and(|value| {
+        let Some((browser, profile_dir)) = value.split_once(':') else {
+            return false;
+        };
+        browser_profile_ready(browser, Path::new(profile_dir))
+    });
+    let browser = configured.then(|| {
+        browser_spec
+            .as_deref()
+            .and_then(|value| value.split(':').next())
+            .unwrap_or_default()
+            .to_string()
+    });
     let login_open = state
         .source_login
         .lock()
         .map_err(|_| "登录窗口状态不可用。".to_string())?
-        .is_some();
+        .as_mut()
+        .and_then(|session| session.child.try_wait().ok())
+        .map(|status| status.is_none())
+        .unwrap_or(false);
     Ok(SourceAuthStatus {
-        configured: browser_spec.is_some(),
+        configured,
         browser,
         login_open,
+        browsers: supported_login_browsers(),
     })
 }
 
+fn browser_definition(browser: &str) -> Option<&'static BrowserDefinition> {
+    BROWSER_DEFINITIONS
+        .iter()
+        .find(|definition| definition.id == browser)
+}
+
+fn browser_installed(browser: &str) -> bool {
+    login_browser_executable(browser).is_some()
+}
+
+fn supported_login_browsers() -> Vec<SupportedLoginBrowser> {
+    BROWSER_DEFINITIONS
+        .iter()
+        .map(|definition| SupportedLoginBrowser {
+            id: definition.id.to_string(),
+            label: definition.label.to_string(),
+            installed: browser_installed(definition.id),
+        })
+        .collect()
+}
+
 fn login_browser_executable(browser: &str) -> Option<PathBuf> {
-    let app_name = if browser == "edge" {
-        "msedge.exe"
-    } else {
-        "chrome.exe"
-    };
-    let registry_keys = if browser == "edge" {
-        [
-            r"HKCU\Software\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe",
-            r"HKLM\Software\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe",
-        ]
-    } else {
-        [
-            r"HKCU\Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
-            r"HKLM\Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
-        ]
-    };
-    for key in registry_keys {
-        if let Some(path) =
-            registry_value(key, None).and_then(|value| executable_from_registry_value(&value))
-        {
-            if path.is_file() {
-                return path.canonicalize().ok();
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<PathBuf>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(entries) = cache.lock() {
+        if let Some(path) = entries.get(browser) {
+            return path.clone();
+        }
+    }
+    let definition = browser_definition(browser)?;
+    let detected = || {
+    for name in definition.registry_names {
+        for hive in ["HKCU", "HKLM"] {
+            let key = format!(
+                r"{hive}\Software\Microsoft\Windows\CurrentVersion\App Paths\{name}"
+            );
+            if let Some(path) = registry_value(&key, None)
+                .and_then(|value| executable_from_registry_value(&value))
+            {
+                if path.is_file() {
+                    return path.canonicalize().ok();
+                }
             }
         }
     }
     let mut roots = Vec::new();
-    if let Some(value) = std::env::var_os("PROGRAMFILES") {
-        roots.push(PathBuf::from(value));
+    for variable in ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA", "APPDATA"] {
+        if let Some(value) = std::env::var_os(variable) {
+            roots.push(PathBuf::from(value));
+        }
     }
-    if let Some(value) = std::env::var_os("PROGRAMFILES(X86)") {
-        roots.push(PathBuf::from(value));
-    }
-    if let Some(value) = std::env::var_os("LOCALAPPDATA") {
-        roots.push(PathBuf::from(value));
-    }
-    let relative = if browser == "edge" {
-        PathBuf::from(r"Microsoft\Edge\Application").join(app_name)
-    } else {
-        PathBuf::from(r"Google\Chrome\Application").join(app_name)
-    };
     roots
         .into_iter()
-        .map(|root| root.join(&relative))
+        .flat_map(|root| {
+            definition
+                .relative_paths
+                .iter()
+                .map(move |relative| root.join(relative))
+        })
         .find(|path| path.is_file())
+        .and_then(|path| path.canonicalize().ok())
+    };
+    let result = detected();
+    if let Ok(mut entries) = cache.lock() {
+        entries.insert(browser.to_string(), result.clone());
+    }
+    result
 }
 
-fn browser_cookie_database(profile_dir: &std::path::Path) -> Option<PathBuf> {
+fn browser_cookie_database(browser: &str, profile_dir: &Path) -> Option<PathBuf> {
+    if browser_definition(browser)?.firefox_profile {
+        return [profile_dir.join("cookies.sqlite")]
+            .into_iter()
+            .find(|path| path.is_file());
+    }
     [
         profile_dir.join(r"Default\Network\Cookies"),
         profile_dir.join(r"Default\Cookies"),
@@ -1896,14 +2113,182 @@ fn browser_cookie_database(profile_dir: &std::path::Path) -> Option<PathBuf> {
     .find(|path| path.is_file())
 }
 
-fn browser_profile_ready(profile_dir: &std::path::Path) -> bool {
-    let Some(cookie_database) = browser_cookie_database(profile_dir) else {
+fn normalized_cookie_host(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches('.')
+        .trim_end_matches('.')
+        .to_ascii_lowercase()
+}
+
+fn host_is_or_under(host: &str, domain: &str) -> bool {
+    host == domain || host.ends_with(&format!(".{domain}"))
+}
+
+fn cookie_domain_matches(cookie_host: &str, target_host: &str) -> bool {
+    let cookie_host = normalized_cookie_host(cookie_host);
+    let target_host = normalized_cookie_host(target_host);
+    host_is_or_under(&target_host, &cookie_host) || host_is_or_under(&cookie_host, &target_host)
+}
+
+fn auth_cookie_matches(name: &str, cookie_host: &str, target_host: Option<&str>) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    let cookie_host = normalized_cookie_host(cookie_host);
+    let target_host = target_host.map(normalized_cookie_host);
+    let target = target_host.as_deref().unwrap_or("");
+    let youtube_target = target.is_empty()
+        || host_is_or_under(target, "youtube.com")
+        || host_is_or_under(target, "google.com")
+        || host_is_or_under(target, "googleapis.com");
+    let youtube_cookie = host_is_or_under(&cookie_host, "youtube.com")
+        || host_is_or_under(&cookie_host, "google.com")
+        || host_is_or_under(&cookie_host, "googleapis.com");
+    let google_name = matches!(
+        name.as_str(),
+        "sid"
+            | "hsid"
+            | "ssid"
+            | "apisid"
+            | "sapisid"
+            | "login_info"
+            | "__secure-1psid"
+            | "__secure-3psid"
+            | "__secure-1papisid"
+            | "__secure-3papisid"
+    );
+    if youtube_target && youtube_cookie && google_name {
+        return true;
+    }
+
+    let matches_target = target.is_empty() || cookie_domain_matches(&cookie_host, target);
+    if !matches_target {
+        return false;
+    }
+    if host_is_or_under(target, "x.com") || host_is_or_under(target, "twitter.com") {
+        return matches!(name.as_str(), "auth_token" | "ct0");
+    }
+    if host_is_or_under(target, "bilibili.com") {
+        return matches!(name.as_str(), "sessdata" | "bili_jct" | "dedeuserid" | "dedeuserid__ckmd5");
+    }
+    if host_is_or_under(target, "tiktok.com") {
+        return matches!(name.as_str(), "sessionid" | "sessionid_ss" | "sid_tt" | "sid_guard");
+    }
+    if host_is_or_under(target, "facebook.com") {
+        return matches!(name.as_str(), "c_user" | "xs" | "fr");
+    }
+    if host_is_or_under(target, "instagram.com") {
+        return matches!(name.as_str(), "sessionid" | "ds_user_id" | "csrftoken");
+    }
+    if target.is_empty() {
+        return matches!(
+            name.as_str(),
+            "auth_token"
+                | "ct0"
+                | "sessdata"
+                | "bili_jct"
+                | "dedeuserid"
+                | "sessionid"
+                | "sessionid_ss"
+                | "sid_tt"
+                | "sid_guard"
+                | "c_user"
+                | "xs"
+                | "li_at"
+                | "reddit_session"
+                | "token_v2"
+                | "access_token"
+                | "refresh_token"
+                | "authorization"
+                | "logged_in"
+        );
+    }
+    matches!(
+        name.as_str(),
+        "auth_token"
+            | "access_token"
+            | "refresh_token"
+            | "authorization"
+            | "logged_in"
+            | "li_at"
+            | "reddit_session"
+            | "token_v2"
+    )
+}
+
+fn copied_cookie_database(browser: &str, profile_dir: &Path) -> Option<PathBuf> {
+    let cookie_database = browser_cookie_database(browser, profile_dir)?;
+    let probe = profile_dir.join(format!(
+        ".clipcargo-cookie-read-probe-{}",
+        std::process::id()
+    ));
+    if fs::copy(cookie_database, &probe).is_ok() {
+        Some(probe)
+    } else {
+        None
+    }
+}
+
+fn browser_has_authenticated_cookie(
+    browser: &str,
+    profile_dir: &Path,
+    target_host: Option<&str>,
+) -> bool {
+    let Some(probe) = copied_cookie_database(browser, profile_dir) else {
         return false;
     };
-    let probe = profile_dir.join(".clipcargo-cookie-read-probe");
-    let copied = fs::copy(cookie_database, &probe).is_ok();
+    let result = if browser_definition(browser)
+        .is_some_and(|definition| definition.firefox_profile)
+    {
+        Connection::open_with_flags(&probe, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .ok()
+            .and_then(|connection| {
+                let mut statement = connection
+                    .prepare("SELECT name, host, value FROM moz_cookies")
+                    .ok()?;
+                let rows = statement
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    })
+                    .ok()?;
+                let authenticated = rows.flatten().any(|(name, host, value)| {
+                    auth_cookie_matches(&name, &host, target_host) && !value.is_empty()
+                });
+                Some(authenticated)
+            })
+    } else {
+        Connection::open_with_flags(&probe, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .ok()
+            .and_then(|connection| {
+                let mut statement = connection
+                    .prepare("SELECT name, host_key, value, encrypted_value FROM cookies")
+                    .ok()?;
+                let rows = statement
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, Vec<u8>>(3)?,
+                        ))
+                    })
+                    .ok()?;
+                let authenticated = rows.flatten().any(|(name, host, value, encrypted)| {
+                    auth_cookie_matches(&name, &host, target_host)
+                        && (!value.is_empty() || !encrypted.is_empty())
+                });
+                Some(authenticated)
+            })
+    };
     let _ = fs::remove_file(probe);
-    copied
+    result.unwrap_or(false)
+}
+
+fn browser_profile_ready(browser: &str, profile_dir: &Path) -> bool {
+    browser_has_authenticated_cookie(browser, profile_dir, None)
 }
 
 fn source_login_root(app_data_dir: &std::path::Path) -> PathBuf {
@@ -1915,11 +2300,11 @@ fn source_auth_config_path(app_data_dir: &std::path::Path) -> PathBuf {
 }
 
 fn source_browser_spec(app_data_dir: &std::path::Path, browser: &str) -> Result<String, String> {
-    if !matches!(browser, "chrome" | "edge") {
+    if browser_definition(browser).is_none() {
         return Err("登录浏览器设置无效。".into());
     }
     let profile_dir = source_login_root(app_data_dir).join(browser);
-    if !browser_profile_ready(&profile_dir) {
+    if !browser_profile_ready(browser, &profile_dir) {
         return Err("登录数据不存在或仍被占用，请重新完成登录。".into());
     }
     Ok(format!("{browser}:{}", profile_dir.to_string_lossy()))
@@ -1962,14 +2347,11 @@ fn open_source_login(
     state: State<'_, AppState>,
 ) -> Result<SourceAuthStatus, String> {
     let browser = browser.trim().to_ascii_lowercase();
-    if !matches!(browser.as_str(), "chrome" | "edge") {
-        return Err("请选择 Chrome 或 Edge。".into());
-    }
+    let Some(definition) = browser_definition(&browser) else {
+        return Err("不支持的登录浏览器。".into());
+    };
     let executable = login_browser_executable(&browser).ok_or_else(|| {
-        format!(
-            "没有找到{}，请先安装浏览器。",
-            if browser == "edge" { "Edge" } else { "Chrome" }
-        )
+        format!("没有找到{}，请先安装浏览器。", definition.label)
     })?;
     let login_url = if let Some(job_id) = job_id {
         let connection = state
@@ -1985,7 +2367,7 @@ fn open_source_login(
             .map_err(|_| "找不到需要登录重试的下载任务。".to_string())?;
         validate_page_url(&page_url)?.0
     } else {
-        "https://www.youtube.com/".to_string()
+        "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F".to_string()
     };
     let profile_dir = source_login_root(&state.app_data_dir).join(&browser);
     fs::create_dir_all(&profile_dir).map_err(|error| format!("创建登录数据目录失败：{error}"))?;
@@ -1993,13 +2375,47 @@ fn open_source_login(
         .source_login
         .lock()
         .map_err(|_| "登录窗口状态不可用。".to_string())?;
-    if let Some(mut previous) = sessions.take() {
-        terminate_child_tree(&mut previous.child);
-        let _ = previous.child.wait();
+    if let Some(existing) = sessions.as_mut() {
+        let still_running = existing
+            .child
+            .try_wait()
+            .map(|status| status.is_none())
+            .unwrap_or(false);
+        if still_running && existing.browser == browser && existing.login_url == login_url {
+            return Ok(SourceAuthStatus {
+                configured: false,
+                browser: Some(existing.browser.clone()),
+                login_open: true,
+                browsers: supported_login_browsers(),
+            });
+        }
     }
-    let child = Command::new(executable)
-        .arg(format!("--user-data-dir={}", profile_dir.to_string_lossy()))
-        .args(["--no-first-run", "--no-default-browser-check", &login_url])
+    if let Some(mut previous) = sessions.take() {
+        close_source_login_browser(&mut previous);
+    }
+    let mut command = Command::new(executable);
+    if definition.firefox_profile {
+        command
+            .args(["-no-remote", "-new-instance", "-profile"])
+            .arg(&profile_dir)
+            .arg(&login_url);
+    } else {
+        command
+            .arg(format!("--user-data-dir={}", profile_dir.to_string_lossy()))
+            .args([
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-session-crashed-bubble",
+                "--noerrdialogs",
+                &login_url,
+            ]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x0000_0008 | 0x0000_0200);
+        }
+    }
+    let child = command
         .spawn()
         .map_err(|error| external_tool_start_error("登录浏览器", &error))?;
     *state
@@ -2009,12 +2425,14 @@ fn open_source_login(
     *sessions = Some(SourceLoginSession {
         browser: browser.clone(),
         profile_dir,
+        login_url,
         child,
     });
     Ok(SourceAuthStatus {
         configured: false,
         browser: Some(browser),
         login_open: true,
+        browsers: supported_login_browsers(),
     })
 }
 
@@ -2026,17 +2444,35 @@ fn finish_source_login(state: State<'_, AppState>) -> Result<SourceAuthStatus, S
         .map_err(|_| "登录窗口状态不可用。".to_string())?
         .take()
         .ok_or("请先打开登录窗口。")?;
-    terminate_child_tree(&mut session.child);
-    let _ = session.child.wait();
+    let target_host = Url::parse(&session.login_url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_string));
     for _ in 0..20 {
-        if browser_profile_ready(&session.profile_dir) {
+        if browser_has_authenticated_cookie(
+            &session.browser,
+            &session.profile_dir,
+            target_host.as_deref(),
+        ) {
             break;
         }
         thread::sleep(Duration::from_millis(100));
     }
-    if !browser_profile_ready(&session.profile_dir) {
-        return Err("没有检测到登录数据。请在登录窗口中进入网站并完成登录后再试。".into());
+    if !browser_has_authenticated_cookie(
+        &session.browser,
+        &session.profile_dir,
+        target_host.as_deref(),
+    ) {
+        // Basic 的登录流程会让外部浏览器保持打开，直到真正读取到有效会话。
+        // 不能在校验前终止浏览器，否则未登录时会出现 Chrome 崩溃恢复提示，
+        // 前端又会把“等待登录”状态清掉，用户只能反复打开窗口。
+        *state
+            .source_login
+            .lock()
+            .map_err(|_| "登录窗口状态不可用。".to_string())? = Some(session);
+        return Err("没有检测到有效的登录会话。请在登录窗口中完成网站登录后再试。".into());
     }
+    // 只有确认会话有效后才关闭临时登录浏览器，并保存配置。
+    close_source_login_browser(&mut session);
     let browser_spec = source_browser_spec(&state.app_data_dir, &session.browser)?;
     save_configured_source_browser(&state.app_data_dir, &session.browser)?;
     *state
@@ -2047,6 +2483,7 @@ fn finish_source_login(state: State<'_, AppState>) -> Result<SourceAuthStatus, S
         configured: true,
         browser: Some(session.browser),
         login_open: false,
+        browsers: supported_login_browsers(),
     })
 }
 
@@ -2067,8 +2504,7 @@ fn set_source_browser(
         .map_err(|_| "登录窗口状态不可用。".to_string())?
         .take()
     {
-        terminate_child_tree(&mut session.child);
-        let _ = session.child.wait();
+        close_source_login_browser(&mut session);
     }
     clear_configured_source_browser(&state.app_data_dir)?;
     *state
@@ -2079,6 +2515,7 @@ fn set_source_browser(
         configured: browser.is_some(),
         browser,
         login_open: false,
+        browsers: supported_login_browsers(),
     })
 }
 
@@ -2323,6 +2760,7 @@ async fn resolve_inbox_item(id: i64, state: State<'_, AppState>) -> Result<Inbox
     let output_result = tauri::async_runtime::spawn_blocking(move || {
         let run = |browser: Option<&str>| {
             let mut command = Command::new(&component);
+            hide_console_window(&mut command);
             command.args([
                 "--ignore-config",
                 "--dump-single-json",
@@ -2511,6 +2949,7 @@ fn execute_processing(
     crop_scale: Option<f64>,
 ) -> Result<(), String> {
     let mut command = Command::new(ffmpeg);
+    hide_console_window(&mut command);
     command
         .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"])
         .arg(input);
@@ -2705,6 +3144,7 @@ fn execute_processing_cancellable(
     cancelled: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let mut command = Command::new(ffmpeg);
+    hide_console_window(&mut command);
     command
         .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"])
         .arg(input);
@@ -3390,7 +3830,9 @@ fn validate_media_streams(
     if !ffprobe.is_file() {
         return Err("缺少 FFprobe，无法校验输出媒体。".into());
     }
-    let output = Command::new(ffprobe)
+    let mut command = Command::new(ffprobe);
+    hide_console_window(&mut command);
+    let output = command
         .args([
             "-v",
             "error",
@@ -4365,7 +4807,9 @@ fn register_extension_bridge(state: &AppState) -> Result<(), String> {
         r"HKCU\Software\Google\Chrome\NativeMessagingHosts\net.clipcargo.native",
         r"HKCU\Software\Microsoft\Edge\NativeMessagingHosts\net.clipcargo.native",
     ] {
-        let result = Command::new("reg.exe")
+        let mut command = Command::new("reg.exe");
+        hide_console_window(&mut command);
+        let result = command
             .args(["ADD", key, "/ve", "/t", "REG_SZ", "/d"])
             .arg(&manifest_path)
             .arg("/f")
@@ -4383,6 +4827,7 @@ fn register_extension_bridge(state: &AppState) -> Result<(), String> {
 
 fn registry_value(key: &str, name: Option<&str>) -> Option<String> {
     let mut command = Command::new("reg.exe");
+    hide_console_window(&mut command);
     command.args(["query", key]);
     if let Some(name) = name {
         command.args(["/v", name]);
@@ -4880,7 +5325,9 @@ fn compatible_mp4_probe(raw: &[u8], extension: &str) -> Result<(bool, bool, bool
 }
 
 fn inspect_compatible_mp4(ffprobe: &PathBuf, path: &PathBuf) -> Result<(bool, bool, bool), String> {
-    let output = Command::new(ffprobe)
+    let mut command = Command::new(ffprobe);
+    hide_console_window(&mut command);
+    let output = command
         .args([
             "-v",
             "error",
@@ -4943,6 +5390,7 @@ fn make_compatible_mp4(
     )?;
     let temporary = parent.join(format!(".clipcargo-compatible-{job_id}.mp4"));
     let mut command = Command::new(ffmpeg);
+    hide_console_window(&mut command);
     command
         .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"])
         .arg(input)
@@ -5454,6 +5902,7 @@ fn execute_download_task(
         .ok_or("无法确定视频处理工具目录。")?
         .to_path_buf();
     let mut command = Command::new(&component);
+    hide_console_window(&mut command);
     command.args([
         "--ignore-config", "--no-playlist", "--newline", "--progress", "--encoding", "utf-8", "--windows-filenames", "--continue", "--part",
         "--retries", "3", "--fragment-retries", "3", "--retry-sleep", "exp=1:5",
@@ -5669,22 +6118,43 @@ fn format_selector_for_quality(quality: &str) -> Result<String, String> {
         // WebM/Opus, MPEG-TS or another split-stream combination. yt-dlp first
         // obtains the best tracks that actually exist; the compatibility pass
         // below then produces the requested H.264/AAC MP4 when necessary.
-        None => Ok("bv*+ba/b/best".into()),
+        // Prefer a current HTTP progressive stream where one exists. X.com
+        // exposes both HTTP MP4 and HLS for the same post, but its HLS
+        // segments can disappear before yt-dlp finishes writing the temp
+        // file. The final alternatives retain the HLS/WebM fallback for
+        // sites that do not expose a direct stream.
+        None => Ok("b[protocol^=http]/bv*[protocol^=http]+ba[protocol^=http]/bv*+ba/b/best".into()),
         Some(height) => Ok(format!(
-            "bv*[height<={height}]+ba/b[height<={height}]/best[height<={height}]"
+            "b[height<={height}][protocol^=http]/bv*[height<={height}][protocol^=http]+ba[protocol^=http]/bv*[height<={height}]+ba/b[height<={height}]/best[height<={height}]"
         )),
     }
 }
 
 fn source_format_selector_for_quality(quality: &str) -> Result<String, String> {
     match requested_quality_height(quality)? {
-        None => Ok("bv*+ba/b".into()),
+        None => Ok("b[protocol^=http]/bv*[protocol^=http]+ba[protocol^=http]/bv*+ba/b".into()),
         Some(height) => Ok(format!(
-            "bv*[height<={height}]+ba/b[height<={height}]/best[height<={height}]/best"
+            "b[height<={height}][protocol^=http]/bv*[height<={height}][protocol^=http]+ba[protocol^=http]/bv*[height<={height}]+ba/b[height<={height}]/best[height<={height}]/best"
         )),
     }
 }
 
+fn download_format_selector(
+    quality: &str,
+    source_format: bool,
+    audio_only: bool,
+) -> Result<String, String> {
+    if audio_only {
+        return Ok("ba/bestaudio".into());
+    }
+    if source_format {
+        source_format_selector_for_quality(quality)
+    } else {
+        format_selector_for_quality(quality)
+    }
+}
+
+#[cfg(test)]
 fn exact_format_selector(format_id: &str) -> Result<String, String> {
     if format_id.is_empty()
         || format_id.len() > 64
@@ -5910,14 +6380,14 @@ async fn download_inbox_item(
         .queued_downloads
         .lock()
         .map_err(|_| "排队状态不可用。".to_string())?;
-    let (page_url, job_id, _auth_required, source_id, source_title, quality_format_ids) = {
+    let (page_url, job_id, _auth_required, source_id, source_title) = {
         let connection = state
             .db
             .lock()
             .map_err(|_| "数据库锁不可用。".to_string())?;
-        let (page_url, item_status, has_video, has_audio, auth_required, source_id, source_title, quality_format_ids) = connection
+        let (page_url, item_status, has_video, has_audio, auth_required, source_id, source_title) = connection
             .query_row(
-                "SELECT page_url,status,has_video,has_audio,auth_required,source_id,title,quality_format_ids_json FROM inbox_items WHERE id=?1",
+                "SELECT page_url,status,has_video,has_audio,auth_required,source_id,title FROM inbox_items WHERE id=?1",
                 params![id],
                 |row| {
                     Ok((
@@ -5928,7 +6398,6 @@ async fn download_inbox_item(
                         row.get::<_, i64>(4)? != 0,
                         row.get::<_, Option<String>>(5)?,
                         row.get::<_, String>(6)?,
-                        row.get::<_, Option<String>>(7)?,
                     ))
                 },
             )
@@ -5965,17 +6434,7 @@ async fn download_inbox_item(
                 |row| row.get(0),
             )
             .map_err(|error| format!("读取下载任务失败：{error}"))?;
-        let quality_format_ids = quality_format_ids
-            .and_then(|value| serde_json::from_str::<BTreeMap<i64, String>>(&value).ok())
-            .unwrap_or_default();
-        (
-            page_url,
-            job_id,
-            auth_required,
-            source_id,
-            source_title,
-            quality_format_ids,
-        )
+        (page_url, job_id, auth_required, source_id, source_title)
     };
     let asset_root =
         asset_package_directory(&downloads_dir, &source_title, source_id.as_deref(), id);
@@ -5988,25 +6447,16 @@ async fn download_inbox_item(
     ] {
         fs::create_dir_all(&directory).map_err(|error| format!("创建素材包目录失败：{error}"))?;
     }
+    let title_limit = download_filename_title_limit(&media_directory);
     let output_template = media_directory
-        .join("%(title).180B [%(id)s].%(ext)s")
+        .join(format!("%(title).{title_limit}B [%(id)s].%(ext)s"))
         .to_string_lossy()
         .to_string();
-    let format_selector = if audio_only {
-        "ba/bestaudio".to_string()
-    } else if let Some(height) = requested_quality_height(&quality)? {
-        if let Some(format_id) = quality_format_ids.get(&(height as i64)) {
-            exact_format_selector(format_id)?
-        } else if source_format {
-            source_format_selector_for_quality(&quality)?
-        } else {
-            format_selector_for_quality(&quality)?
-        }
-    } else if source_format {
-        source_format_selector_for_quality(&quality)?
-    } else {
-        format_selector_for_quality(&quality)?
-    };
+    // Resolver format IDs are a snapshot. They can expire or change between
+    // recognition and download, especially on X.com where HLS IDs are short-
+    // lived. Select from the formats currently exposed by yt-dlp instead of
+    // forcing a stale cached ID such as hls-4593.
+    let format_selector = download_format_selector(&quality, source_format, audio_only)?;
     queued.insert(job_id, control.clone());
     drop(active);
     drop(queued);
@@ -6305,7 +6755,9 @@ fn registry_points_to_manifest(manifest_path: &PathBuf) -> bool {
     ]
     .iter()
     .all(|key| {
-        Command::new("reg.exe")
+        let mut command = Command::new("reg.exe");
+        hide_console_window(&mut command);
+        command
             .args(["QUERY", key, "/ve"])
             .output()
             .ok()
@@ -6410,6 +6862,17 @@ fn component_status(state: State<'_, AppState>) -> ComponentStatus {
     let yt_dlp_bytes = managed_bytes("yt-dlp");
     let ffmpeg_bytes = managed_bytes("ffmpeg");
     let deno_bytes = managed_bytes("deno");
+    let manifest_version = |kind: &str| {
+        fs::read(components_dir.join(format!("{kind}.manifest.json")))
+            .ok()
+            .and_then(|contents| serde_json::from_slice::<serde_json::Value>(&contents).ok())
+            .and_then(|manifest| {
+                manifest
+                    .get("version")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned)
+            })
+    };
     ComponentStatus {
         yt_dlp_ready,
         ffmpeg_ready,
@@ -6421,46 +6884,12 @@ fn component_status(state: State<'_, AppState>) -> ComponentStatus {
         } else {
             "component-required".into()
         },
-        yt_dlp_version: if yt_dlp_ready {
-            Command::new(&yt_dlp_path)
-                .arg("--version")
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        } else {
-            None
-        },
-        ffmpeg_version: if ffmpeg_ready {
-            Command::new(components_dir.join("ffmpeg.exe"))
-                .arg("-version")
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .and_then(|output| {
-                    String::from_utf8_lossy(&output.stdout)
-                        .lines()
-                        .next()
-                        .map(str::to_string)
-                })
-        } else {
-            None
-        },
-        deno_version: if deno_ready {
-            Command::new(&deno_path)
-                .arg("--version")
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .and_then(|output| {
-                    String::from_utf8_lossy(&output.stdout)
-                        .lines()
-                        .next()
-                        .map(str::to_string)
-                })
-        } else {
-            None
-        },
+        // The manifest is written only after the component passes its own
+        // install/version check. Reading it keeps startup cheap and avoids
+        // launching yt-dlp/ffmpeg/deno just to paint the settings page.
+        yt_dlp_version: yt_dlp_ready.then(|| manifest_version("yt-dlp")).flatten(),
+        ffmpeg_version: ffmpeg_ready.then(|| manifest_version("ffmpeg")).flatten(),
+        deno_version: deno_ready.then(|| manifest_version("deno")).flatten(),
         storage_free_bytes: fs2::available_space(&downloads_dir).ok(),
         installing: state.component_installing.load(Ordering::Acquire),
         install_phase: match state.component_install_phase.load(Ordering::Acquire) {
@@ -6916,7 +7345,9 @@ async fn install_yt_dlp_into_controlled(
         }
         return Err(format!("启用新工具失败，已尝试恢复旧版本：{error}"));
     }
-    let version_output = match Command::new(&final_path).arg("--version").output() {
+    let mut version_command = Command::new(&final_path);
+    hide_console_window(&mut version_command);
+    let version_output = match version_command.arg("--version").output() {
         Ok(output) => output,
         Err(error) => {
             rollback_component_group(components_dir, &["yt-dlp.exe"]);
@@ -7084,7 +7515,9 @@ async fn install_deno_into_controlled(
         }
         return Err(format!("启用 Deno 失败，已尝试恢复旧版本：{error}"));
     }
-    let version_output = match Command::new(&current).arg("--version").output() {
+    let mut version_command = Command::new(&current);
+    hide_console_window(&mut version_command);
+    let version_output = match version_command.arg("--version").output() {
         Ok(output) => output,
         Err(error) => {
             rollback_component_group(components_dir, &["deno.exe"]);
@@ -7264,7 +7697,9 @@ async fn install_ffmpeg_into_controlled(
     activate_component_group(components_dir, FFMPEG_EXECUTABLES)?;
     let ffmpeg_path = components_dir.join("ffmpeg.exe");
     let ffprobe_path = components_dir.join("ffprobe.exe");
-    let ffmpeg_output = match Command::new(&ffmpeg_path).arg("-version").output() {
+    let mut ffmpeg_command = Command::new(&ffmpeg_path);
+    hide_console_window(&mut ffmpeg_command);
+    let ffmpeg_output = match ffmpeg_command.arg("-version").output() {
         Ok(output) => output,
         Err(error) => {
             rollback_component_group(components_dir, FFMPEG_EXECUTABLES);
@@ -7274,7 +7709,9 @@ async fn install_ffmpeg_into_controlled(
             ));
         }
     };
-    let ffprobe_ok = Command::new(&ffprobe_path)
+    let mut ffprobe_command = Command::new(&ffprobe_path);
+    hide_console_window(&mut ffprobe_command);
+    let ffprobe_ok = ffprobe_command
         .arg("-version")
         .output()
         .map(|output| output.status.success())
@@ -7380,6 +7817,11 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+fn window_ready(app: AppHandle) {
+    show_main_window(&app);
+}
+
 fn request_task_shutdown(state: &AppState) {
     if let Ok(active) = state.active_downloads.lock() {
         for control in active.values() {
@@ -7433,8 +7875,7 @@ fn stop_tasks_and_exit(app: tauri::AppHandle) {
         request_task_shutdown(&state);
         if let Ok(mut source_login) = state.source_login.lock() {
             if let Some(mut session) = source_login.take() {
-                terminate_child_tree(&mut session.child);
-                let _ = session.child.wait();
+                close_source_login_browser(&mut session);
             }
         }
         while !task_shutdown_complete(&state) {
@@ -7445,6 +7886,12 @@ fn stop_tasks_and_exit(app: tauri::AppHandle) {
 }
 
 fn main() {
+    #[cfg(windows)]
+    let _single_instance = match acquire_single_instance() {
+        Some(guard) => guard,
+        None => return,
+    };
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -7531,13 +7978,6 @@ fn main() {
                 source_login: Mutex::new(None),
                 allow_exit: AtomicBool::new(false),
             });
-            // Keep both the Chrome Web Store and local-development extension IDs
-            // registered whenever the desktop app starts. A missing sidecar should
-            // not prevent the rest of the desktop application from opening.
-            let bridge_state = app.state::<AppState>();
-            if let Err(error) = register_extension_bridge(&bridge_state) {
-                eprintln!("ClipCargo browser bridge registration skipped: {error}");
-            }
             let menu = MenuBuilder::new(app)
                 .text("show-main", "打开 ClipCargo")
                 .separator()
@@ -7560,6 +8000,16 @@ fn main() {
                 }
             })
             .build(app)?;
+            // Registering the native-messaging bridge writes files and invokes
+            // reg.exe. Keep that work off the startup/UI thread so the first
+            // window frame cannot become a white or "not responding" window.
+            let bridge_app = app.handle().clone();
+            thread::spawn(move || {
+                let bridge_state = bridge_app.state::<AppState>();
+                if let Err(error) = register_extension_bridge(&bridge_state) {
+                    eprintln!("ClipCargo browser bridge registration skipped: {error}");
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -7569,8 +8019,7 @@ fn main() {
                     if task_shutdown_complete(&state) {
                         if let Ok(mut source_login) = state.source_login.lock() {
                             if let Some(mut session) = source_login.take() {
-                                terminate_child_tree(&mut session.child);
-                                let _ = session.child.wait();
+                                close_source_login_browser(&mut session);
                             }
                         }
                         state.allow_exit.store(true, Ordering::Release);
@@ -7583,6 +8032,7 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            window_ready,
             list_inbox,
             list_projects,
             create_project,
@@ -7691,6 +8141,26 @@ mod tests {
     }
 
     #[test]
+    fn accepts_provider_session_cookies_only_for_the_matching_source() {
+        assert!(auth_cookie_matches("SID", ".google.com", Some("www.youtube.com")));
+        assert!(!auth_cookie_matches("PREF", ".google.com", Some("www.youtube.com")));
+        assert!(auth_cookie_matches("auth_token", ".x.com", Some("x.com")));
+        assert!(!auth_cookie_matches("auth_token", ".x.com", Some("www.youtube.com")));
+        assert!(auth_cookie_matches("SESSDATA", ".bilibili.com", Some("www.bilibili.com")));
+    }
+
+    #[test]
+    fn advertises_mainstream_login_browsers() {
+        let ids = BROWSER_DEFINITIONS
+            .iter()
+            .map(|definition| definition.id)
+            .collect::<Vec<_>>();
+        for browser in ["chrome", "edge", "firefox", "brave", "vivaldi", "opera"] {
+            assert!(ids.contains(&browser));
+        }
+    }
+
+    #[test]
     fn persists_and_really_clears_isolated_browser_login_data() {
         let root = std::env::temp_dir().join(format!(
             "clipcargo-source-login-{}",
@@ -7708,7 +8178,15 @@ mod tests {
             .join("Cookies");
         fs::create_dir_all(cookie_database.parent().unwrap()).unwrap();
         fs::create_dir_all(&components).unwrap();
-        fs::write(&cookie_database, b"isolated-cookie-database").unwrap();
+        let connection = Connection::open(&cookie_database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE cookies (name TEXT, host_key TEXT, value TEXT, encrypted_value BLOB);
+                 INSERT INTO cookies (name, host_key, value, encrypted_value)
+                 VALUES ('SID', '.google.com', 'authenticated', X'');",
+            )
+            .unwrap();
+        drop(connection);
 
         save_configured_source_browser(&root, "chrome").unwrap();
         let restored = read_configured_source_browser(&root).unwrap();
@@ -7874,10 +8352,9 @@ mod tests {
 
     #[test]
     fn source_format_selectors_do_not_force_mp4_codecs() {
-        assert_eq!(
-            source_format_selector_for_quality("best").unwrap(),
-            "bv*+ba/b"
-        );
+        assert!(source_format_selector_for_quality("best")
+            .unwrap()
+            .contains("protocol^=http"));
         assert!(source_format_selector_for_quality("1080")
             .unwrap()
             .contains("height<=1080"));
@@ -8445,6 +8922,22 @@ mod tests {
     }
 
     #[test]
+    fn downloads_use_current_formats_instead_of_cached_resolver_ids() {
+        let selector = download_format_selector("1080", false, false).unwrap();
+        assert!(selector.contains("bv*[height<=1080]"));
+        assert!(selector.contains("protocol^=http"));
+        assert!(!selector.contains("hls-4593"));
+        assert_eq!(
+            download_format_selector("best", false, true).unwrap(),
+            "ba/bestaudio"
+        );
+        assert_eq!(
+            download_format_selector("720", true, false).unwrap(),
+            "b[height<=720][protocol^=http]/bv*[height<=720][protocol^=http]+ba[protocol^=http]/bv*[height<=720]+ba/b[height<=720]/best[height<=720]/best"
+        );
+    }
+
+    #[test]
     fn checks_available_space_before_media_work() {
         let temp = std::env::temp_dir();
         assert!(ensure_free_space(&temp, 0, "测试").is_ok());
@@ -8689,6 +9182,16 @@ mod tests {
             asset_package_directory(&root, "CON", None, 9),
             root.join("_CON [item-9]")
         );
+    }
+
+    #[test]
+    fn keeps_download_filename_inside_windows_path_budget() {
+        let media_directory = PathBuf::from(
+            r"C:\Users\moote\AppData\Local\net.clipcargo.desktop\downloads\Yahoo Finance - AMD’s CEO sees a big opportunity in AI, and she’s building for it now [2118856037381914625]\video",
+        );
+        let limit = download_filename_title_limit(&media_directory);
+        assert_eq!(limit, 31);
+        assert!(media_directory.to_string_lossy().chars().count() + 1 + limit + 34 <= 240);
     }
 
     #[test]
@@ -9260,6 +9763,36 @@ mod tests {
             )
             .unwrap();
         assert_eq!(remaining, 1);
+    }
+
+    #[test]
+    fn removes_failed_download_record_without_a_media_file() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialize_database(&connection).unwrap();
+        let capture = insert_capture(
+            &connection,
+            CaptureInput {
+                request_id: Some("failed-download".into()),
+                page_url: "https://example.com/failed".into(),
+                title: Some("failed".into()),
+                project_name: None,
+                capture_method: None,
+            },
+        )
+        .unwrap();
+        connection.execute(
+            "INSERT INTO download_jobs(item_id,status,created_at,updated_at) VALUES(?1,'failed',1,1)",
+            params![capture.item.id],
+        ).unwrap();
+        remove_inbox_record(&connection, capture.item.id).unwrap();
+        let remaining: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM inbox_items WHERE id=?1",
+                params![capture.item.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(remaining, 0);
     }
 
     #[tokio::test]

@@ -158,7 +158,7 @@ function savePreferences() {
 savePreferences();
 
 const savedView = localStorage.getItem('clipcargo:last-view');
-const state = { view: ['inbox', 'tasks', 'library', 'browser'].includes(savedView) ? savedView : 'inbox', items: [], jobs: [], derivatives: [], projects: [{ name: '未分类', isSystem: true, itemCount: 0 }], filter: 'all', projectFilter: 'all', inboxPage: 1, taskFilter: 'active', taskPage: 1, libraryView: 'projects', librarySourceJob: null, libraryQuery: '', librarySort: 'newest', libraryProject: 'all', libraryKind: 'all', libraryPage: 1, editor: null, bridge: null, components: null, authConfigured: false, authBrowser: null, authLoginOpen: false, authRetryJobId: null, bridgeChecking: false, loading: true, editingProject: null, pendingProjectDelete: null, pendingLibraryRemoval: null, pendingLibraryImpact: null, pendingInboxRemoval: null, pendingBatchRemoval: false, pendingComponentRemoval: null, relinkTarget: null };
+const state = { view: ['inbox', 'tasks', 'library', 'browser'].includes(savedView) ? savedView : 'inbox', items: [], jobs: [], derivatives: [], projects: [{ name: '未分类', isSystem: true, itemCount: 0 }], filter: 'all', projectFilter: 'all', inboxPage: 1, taskFilter: 'active', taskPage: 1, libraryView: 'projects', librarySourceJob: null, libraryQuery: '', librarySort: 'newest', libraryProject: 'all', libraryKind: 'all', libraryPage: 1, editor: null, bridge: null, components: null, authConfigured: false, authBrowser: null, authBrowsers: [], authBrowserChoice: null, authLoginOpen: false, authLoginError: '', authRetryJobId: null, bridgeChecking: false, loading: true, editingProject: null, pendingProjectDelete: null, pendingLibraryRemoval: null, pendingLibraryImpact: null, pendingInboxRemoval: null, pendingBatchRemoval: false, pendingComponentRemoval: null, relinkTarget: null };
 let toastTimer;
 let librarySearchTimer;
 let projectActiveIndex = -1;
@@ -247,8 +247,8 @@ function classifyTaskError(message, kind = 'download', persistedCode = '', conte
   return kind === 'processing'
     ? { code: 'PROCESS_FAILED', action: '检查原片是否仍可读取，再按原参数重试。' }
     : context?.outputPreset === 'video'
-      ? { code: 'PROCESS_FAILED', action: '当前已经是兼容 MP4，不是格式选择错误。请先确认来源网页仍可播放；若网站明确要求登录，再启用登录失败重试。' }
-      : { code: 'PROCESS_FAILED', action: '确认来源网页仍可播放后重试；需要通用 MP4 时可选择兼容 MP4。' };
+      ? { code: 'PROCESS_FAILED', action: '下载器在保存或合并视频时失败。请先按原参数重试；仍失败时可检查磁盘空间或改用保留来源格式。' }
+      : { code: 'PROCESS_FAILED', action: '下载器未能完成文件保存。请先按原参数重试，并确认来源仍可播放。' };
 }
 
 function taskErrorMarkup(message, kind = 'download', persistedCode = '', context = null) {
@@ -282,6 +282,11 @@ function taskRecoveryButton(item, kind = 'download') {
 function userCancelled(item) {
   return item?.errorCode === 'CANCELLED_BY_USER'
     || (item?.status === 'failed' && classifyTaskError(item.errorMessage, item.kind ? 'processing' : 'download').code === 'CANCELLED_BY_USER');
+}
+
+function isFailedTask(item) {
+  return !userCancelled(item)
+    && (item?.status === 'failed' || Boolean(item?.errorMessage && item.status !== 'completed'));
 }
 
 function notify(message, duration = 5000) {
@@ -438,6 +443,12 @@ function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes < 0) return '未知';
   if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GiB`;
   return `${Math.round(bytes / 1_048_576)} MiB`;
+}
+
+function canRemoveInboxItem(item, job) {
+  if (!job) return true;
+  if (job.status !== 'failed' || job.filePath) return false;
+  return !state.derivatives.some((derivative) => derivative.parentJobId === job.id && ['queued', 'processing'].includes(derivative.status));
 }
 
 function compactComponentVersion(value) {
@@ -641,7 +652,7 @@ function renderInbox() {
   const selectedItems = state.items.filter((item) => selectedInboxItems.has(item.id));
   const selectedDownloadable = selectedItems.filter((item) => allDownloadableIds.has(item.id));
   const selectedResolvable = selectedItems.filter((item) => !['waiting_component', 'resolving', 'ready'].includes(item.status));
-  const selectedRemovable = selectedItems.filter((item) => !jobsByItemId.has(item.id));
+  const selectedRemovable = selectedItems.filter((item) => canRemoveInboxItem(item, jobsByItemId.get(item.id)));
   main.innerHTML = `<div class="page-toolbar">
     <div class="tabs" role="tablist" aria-label="素材状态">
       <button class="tab ${state.filter === 'all' ? 'active' : ''}" role="tab" aria-selected="${state.filter === 'all'}" tabindex="${state.filter === 'all' ? '0' : '-1'}" data-filter="all">全部<span>${state.items.length}</span></button>
@@ -661,7 +672,7 @@ function renderInbox() {
           ? `<button class="button compact" data-resolve="${item.id}">${icon(item.status === 'failed' ? 'refresh-cw' : 'circle-play')}${item.status === 'failed' ? '重试' : '识别'}</button>`
           : item.status === 'ready' && job?.status !== 'queued' && job?.status !== 'downloading' && job?.status !== 'completed'
             ? `<button class="button compact primary" data-download="${item.id}">${icon('download')}${job?.status === 'failed' ? '重试下载' : '下载'}</button>` : '';
-        const secondaryActions = `${item.captureMethod === 'local-import' ? '' : `<button class="menu-action" data-open-source="${item.id}">${icon('external-link')}打开来源</button>`}${item.status === 'ready' && !job ? `<button class="menu-action" data-resolve="${item.id}">${icon('refresh-cw')}重新识别</button>` : ''}${job ? '' : `<button class="menu-action danger-text" data-remove="${item.id}">${icon('trash-2')}移除</button>`}`;
+        const secondaryActions = `${item.captureMethod === 'local-import' ? '' : `<button class="menu-action" data-open-source="${item.id}">${icon('external-link')}打开来源</button>`}${item.status === 'ready' && !job ? `<button class="menu-action" data-resolve="${item.id}">${icon('refresh-cw')}重新识别</button>` : ''}${canRemoveInboxItem(item, job) ? `<button class="menu-action danger-text" data-remove="${item.id}">${icon('trash-2')}移除</button>` : ''}`;
         return `
         <article class="inbox-row">
           <label class="inbox-select" title="选择条目"><input type="checkbox" data-select-item="${item.id}" aria-label="选择 ${escapeHtml(item.title)}" ${selectedInboxItems.has(item.id) ? 'checked' : ''}></label>
@@ -731,9 +742,30 @@ function closeInboxDetail() {
 }
 
 function taskMatchesFilter(item, filter) {
-  if (filter === 'active') return ['queued', 'downloading', 'paused', 'processing'].includes(item.status);
-  if (filter === 'attention') return item.status === 'failed' && !userCancelled(item);
+  if (filter === 'active') return !isFailedTask(item) && ['queued', 'downloading', 'paused', 'processing'].includes(item.status);
+  if (filter === 'attention') return isFailedTask(item);
   return item.status === 'completed' || userCancelled(item);
+}
+
+function downloadTaskRow(item) {
+  const cancelled = userCancelled(item);
+  const failed = isFailedTask(item);
+  const displayStatus = cancelled ? 'cancelled' : failed ? 'failed' : item.status;
+  const statusText = cancelled ? '已停止' : jobLabel(displayStatus);
+  const taskTime = Number.isFinite(item.updatedAt) ? item.updatedAt : item.createdAt;
+  const metadata = `下载 · ${escapeHtml(item.sourceHost)} · ${escapeHtml(outputPresetLabel(item.outputPreset))}${item.outputPreset === 'audio' ? '' : ` · ${escapeHtml(qualityLabel(item.quality))}`}${item.saveSubtitles ? ` · 字幕 ${escapeHtml((item.subtitleLanguages || []).join('、') || '自动')}` : ''}${item.saveCover ? ' · 封面' : ''}${item.retainSource ? ' · 保留原格式' : ''}${item.status === 'queued' ? queuePosition(state.jobs, item.id) : ''}${Number.isFinite(taskTime) ? ` · ${escapeHtml(formatTime(taskTime))}` : ''}`;
+  const progress = !failed && (item.status === 'downloading' || item.status === 'paused') ? `<div class="progress-track" aria-label="下载进度 ${Math.round(item.progressPercent || 0)}%"><span style="width:${Math.max(0, Math.min(100, item.progressPercent || 0))}%"></span></div>${downloadProgressDetail(item)}` : '';
+  const recoveryButton = taskRecoveryButton(item);
+  const actionButtons = failed
+    ? (recoveryButton || `<button class="button compact" data-retry-download="${item.id}">${icon('refresh-cw')}重试</button>`)
+    : item.status === 'downloading'
+      ? `<button class="button compact" data-pause-download="${item.id}">暂停</button><button class="button compact danger-text" data-cancel-download="${item.id}">停止</button>`
+      : item.status === 'queued'
+        ? `<button class="button compact danger-text" data-cancel-download="${item.id}">取消</button>`
+        : item.status === 'paused'
+          ? `<button class="button compact primary" data-resume-download="${item.id}">继续</button><button class="button compact danger-text" data-cancel-download="${item.id}">停止</button>`
+          : '';
+  return `<article class="task-row"><div><strong>${escapeHtml(item.title)}</strong><div class="item-meta">${metadata}</div>${progress}${taskErrorMarkup(item.errorMessage, 'download', item.errorCode, item)}${item.warningMessage ? `<div class="item-warning">${escapeHtml(item.warningMessage)}</div>` : ''}</div><div class="item-action"><span class="status status-${displayStatus}">${statusText}</span>${actionButtons ? `<div class="task-action-buttons">${actionButtons}</div>` : ''}</div></article>`;
 }
 
 function renderTasks() {
@@ -748,9 +780,11 @@ function renderTasks() {
   state.taskPage = Math.min(Math.max(1, state.taskPage), taskPageCount);
   const pageEntries = entries.slice((state.taskPage - 1) * TASK_PAGE_SIZE, state.taskPage * TASK_PAGE_SIZE);
   const taskRows = pageEntries.map(({ type, item }) => {
+    if (type === 'download') return downloadTaskRow(item);
     const cancelled = userCancelled(item);
-    if (type === 'download') return `<article class="task-row"><div class="task-icon">${icon(cancelled ? 'square' : item.status === 'failed' ? 'circle-alert' : item.status === 'completed' ? 'circle-check' : 'download')}</div><div><strong>${escapeHtml(item.title)}</strong><div class="item-meta">下载 · ${escapeHtml(item.sourceHost)} · ${escapeHtml(outputPresetLabel(item.outputPreset))}${item.outputPreset === 'audio' ? '' : ` · ${escapeHtml(qualityLabel(item.quality))}`}${item.saveSubtitles ? ` · 字幕 ${escapeHtml((item.subtitleLanguages || []).join('、') || '自动')}` : ''}${item.saveCover ? ' · 封面' : ''}${item.retainSource ? ' · 保留原格式' : ''}${item.status === 'queued' ? queuePosition(state.jobs, item.id) : ''}</div>${item.status === 'downloading' || item.status === 'paused' ? `<div class="progress-track" aria-label="下载进度 ${Math.round(item.progressPercent || 0)}%"><span style="width:${Math.max(0, Math.min(100, item.progressPercent || 0))}%"></span></div>${downloadProgressDetail(item)}` : ''}${taskErrorMarkup(item.errorMessage, 'download', item.errorCode, item)}${item.warningMessage ? `<div class="item-warning">${escapeHtml(item.warningMessage)}</div>` : ''}</div><div class="item-action"><span class="status status-${cancelled ? 'cancelled' : item.status}">${cancelled ? '已停止' : jobLabel(item.status)}</span>${item.status === 'downloading' ? `<button class="button compact" data-pause-download="${item.id}">暂停</button><button class="button compact danger-text" data-cancel-download="${item.id}">停止</button>` : ''}${item.status === 'queued' ? `<button class="button compact danger-text" data-cancel-download="${item.id}">取消</button>` : ''}${item.status === 'paused' ? `<button class="button compact primary" data-resume-download="${item.id}">继续</button>` : ''}${item.status === 'failed' ? `${taskRecoveryButton(item)}<button class="button compact" data-retry-download="${item.id}">${icon('refresh-cw')}${cancelled ? '按原参数重新开始' : '按原参数重试'}</button>` : ''}</div></article>`;
-    return `<article class="task-row"><div class="task-icon">${icon(cancelled ? 'square' : item.status === 'failed' ? 'circle-alert' : item.status === 'completed' ? 'circle-check' : 'scissors')}</div><div><strong>${escapeHtml(item.title)}</strong><div class="item-meta">${escapeHtml(derivativeKind(item.kind))}${item.status === 'queued' ? queuePosition(state.derivatives, item.id) : ''}</div>${item.status === 'processing' ? `<div class="progress-track" aria-label="处理进度 ${Math.round(item.progressPercent || 0)}%"><span style="width:${Math.max(0, Math.min(100, item.progressPercent || 0))}%"></span></div><div class="progress-label">${Math.round(item.progressPercent || 0)}%</div>` : ''}${taskErrorMarkup(item.errorMessage, 'processing', item.errorCode)}</div><div class="item-action"><span class="status status-${cancelled ? 'cancelled' : item.status}">${cancelled ? '已取消' : item.status === 'queued' ? '排队中' : item.status === 'processing' ? '处理中' : item.status === 'completed' ? '已完成' : '处理失败'}</span>${item.status === 'queued' || item.status === 'processing' ? `<button class="button compact danger-text" data-cancel-processing="${item.id}">取消</button>` : ''}${item.status === 'failed' ? `${taskRecoveryButton(item, 'processing')}<button class="button compact" data-retry-processing="${item.id}">${icon('refresh-cw')}${cancelled ? '按原参数重新开始' : '按原参数重试'}</button>` : ''}</div></article>`;
+    const taskTime = Number.isFinite(item.updatedAt) ? item.updatedAt : item.createdAt;
+    const metadata = `${escapeHtml(derivativeKind(item.kind))}${item.status === 'queued' ? queuePosition(state.derivatives, item.id) : ''}${Number.isFinite(taskTime) ? ` · ${escapeHtml(formatTime(taskTime))}` : ''}`;
+    return `<article class="task-row"><div><strong>${escapeHtml(item.title)}</strong><div class="item-meta">${metadata}</div>${item.status === 'processing' ? `<div class="progress-track" aria-label="处理进度 ${Math.round(item.progressPercent || 0)}%"><span style="width:${Math.max(0, Math.min(100, item.progressPercent || 0))}%"></span></div><div class="progress-label">${Math.round(item.progressPercent || 0)}%</div>` : ''}${taskErrorMarkup(item.errorMessage, 'processing', item.errorCode)}</div><div class="item-action"><span class="status status-${cancelled ? 'cancelled' : item.status}">${cancelled ? '已取消' : item.status === 'queued' ? '排队中' : item.status === 'processing' ? '处理中' : item.status === 'completed' ? '已完成' : '处理失败'}</span>${item.status === 'queued' || item.status === 'processing' ? `<button class="button compact danger-text" data-cancel-processing="${item.id}">取消</button>` : ''}${item.status === 'failed' ? `${taskRecoveryButton(item, 'processing')}<button class="button compact" data-retry-processing="${item.id}">${icon('refresh-cw')}${cancelled ? '按原参数重新开始' : '按原参数重试'}</button>` : ''}</div></article>`;
   }).join('');
   const taskFilters = [
     ['active', '进行中'],
@@ -792,7 +826,8 @@ function libraryAssetCard(item) {
         : externalReference
           ? '<span class="state-pill neutral">外部引用</span>'
           : '';
-      const metadata = `<span>${escapeHtml(item.kindLabel)}</span><span>·</span><span>${escapeHtml(item.projectName || '未分类')}</span>${item.sourceHost ? `<span>·</span><span>${escapeHtml(item.sourceHost)}</span>` : ''}${item.durationSeconds != null ? `<span>·</span><span>${formatDuration(item.durationSeconds)}</span>` : ''}`;
+      const assetTime = Number.isFinite(item.updatedAt) ? item.updatedAt : item.createdAt;
+      const metadata = `<span>${escapeHtml(item.kindLabel)}</span><span>·</span><span>${escapeHtml(item.projectName || '未分类')}</span>${item.sourceHost ? `<span>·</span><span>${escapeHtml(item.sourceHost)}</span>` : ''}${item.durationSeconds != null ? `<span>·</span><span>${formatDuration(item.durationSeconds)}</span>` : ''}${Number.isFinite(assetTime) ? `<span>·</span><time>${escapeHtml(formatTime(assetTime))}</time>` : ''}`;
       const mediaActions = `<div class="media-primary-actions">${primaryAction}${editorAction}</div><details class="media-more"><summary class="icon-button" aria-label="更多操作" title="更多操作">${icon('ellipsis')}</summary><div class="media-more-menu">${secondaryActions}</div></details>`;
       return `<article class="media-card ${item.fileMissing ? 'missing' : ''}"><button class="media-preview" ${item.fileMissing ? 'disabled' : `data-play-type="${item.assetType}" data-play-id="${item.assetId}"`}><div class="media-thumb">${safeThumbnail(item.thumbnailUrl) ? `<img src="${escapeHtml(safeThumbnail(item.thumbnailUrl))}" alt="" loading="lazy">` : ''}<span class="play-overlay">${icon(item.fileMissing ? 'circle-alert' : 'circle-play')}</span></div><div class="media-info"><div class="media-title-row"><strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong></div><div class="media-badge-row">${badge}</div><div class="item-meta">${metadata}</div></div></button>${confirmingRemoval ? `<div class="library-removal-confirm"><span>${impactLine ? `<strong>${impactLine}</strong><br>` : ''}${removalMessage}</span><div><button class="button compact" data-cancel-library-removal>取消</button><button class="button compact" data-confirm-library-removal-type="${item.assetType}" data-confirm-library-removal-id="${item.assetId}">仅移出库</button>${item.fileMissing || externalReference ? '' : `<button class="button compact danger-text" data-trash-library-type="${item.assetType}" data-trash-library-id="${item.assetId}">移到回收站</button>`}</div></div>` : `<div class="media-actions">${mediaActions}</div>`}</article>`;
 }
@@ -1036,7 +1071,7 @@ function renderBrowser() {
     : extensionNeedsReload
       ? `开发测试扩展 ${escapeHtml(bridge.extensionVersion)} 与本地文件 ${escapeHtml(extensionPackageVersion)} 不一致，请重新加载本地扩展文件。`
       : isStoreExtension
-      ? `Chrome Web Store 版 ${escapeHtml(bridge.extensionVersion || '未知')} · ${extensionActive ? '已连接 ClipCargo' : '等待浏览器连接'}`
+      ? (extensionActive ? '' : '等待浏览器连接')
       : extensionActive
       ? `${isDevelopmentExtension ? '开发测试版' : '扩展'} ${escapeHtml(bridge.extensionVersion || '未知')} · 最近通信 ${escapeHtml(formatTime(bridge.lastSeenAt))}`
       : extensionVerified
@@ -1056,6 +1091,14 @@ function renderBrowser() {
     ? `<button class="button" data-action="check-extension" disabled aria-busy="true" aria-label="正在检测…">${icon('refresh-cw')}正在检测…</button>`
     : `<button class="button" data-action="check-extension" ${bridgeHostInstalled ? '' : 'disabled'}>${icon('refresh-cw')}检测连接</button>`;
   const extensionTestDetails = showDeveloperExtensionFlow ? '<details class="setup-details"><summary>开发者测试说明</summary><p>本地测试扩展只用于开发验证，不代表商店用户安装的版本。</p><ol><li>点击“打开本地扩展文件”，在浏览器扩展页开启开发者模式。</li><li>选择软件释放的扩展文件夹并加载。</li><li>开发测试时保持开发者模式开启；普通用户不需要这一步。</li></ol></details>' : '';
+  const extensionDetailMarkup = extensionDetail ? `<small class="setting-status-detail">${extensionDetail}</small>` : '';
+  const authBrowsers = Array.isArray(state.authBrowsers) ? state.authBrowsers : [];
+  const installedAuthBrowsers = authBrowsers.filter((browser) => browser.installed);
+  const authBrowserChoice = state.authBrowserChoice || state.authBrowser || installedAuthBrowsers[0]?.id || authBrowsers[0]?.id || 'chrome';
+  const authBrowserOptions = authBrowsers.length
+    ? authBrowsers.map((browser) => `<option value="${escapeHtml(browser.id)}" ${browser.id === authBrowserChoice ? 'selected' : ''} ${browser.installed ? '' : 'disabled'}>${escapeHtml(browser.label)}${browser.installed ? '' : '（未安装）'}</option>`).join('')
+    : '<option value="chrome">Chrome</option><option value="edge">Edge</option>';
+  const authBrowserControl = `<select id="setting-auth-browser" class="field-control auth-browser-select" aria-label="选择登录浏览器">${authBrowserOptions}</select><button class="button primary" data-action="open-source-login" data-browser="${escapeHtml(authBrowserChoice)}">打开登录窗口</button>`;
   const installPhaseText = { downloading: '正在下载', verifying: '正在校验', installing: '正在安装' }[components?.installPhase] || '正在准备';
   const installProgress = Number.isFinite(components?.installProgressPercent) ? Math.max(0, Math.min(100, components.installProgressPercent)) : 0;
   const installingTitle = componentInstallPlans[activeComponentInstallKind]?.title || '所需工具';
@@ -1069,10 +1112,10 @@ function renderBrowser() {
     <div class="settings-grid">
       <div class="settings-column">
         <section class="setting-card"><div class="setting-icon">${icon('settings')}</div><div class="setting-body"><div class="setting-title"><h2>常规</h2></div><div class="setting-fields"><label>主题<select id="setting-theme" class="field-control"><option value="system" ${preferences.theme === 'system' ? 'selected' : ''}>跟随系统</option><option value="light" ${preferences.theme === 'light' ? 'selected' : ''}>浅色</option><option value="dark" ${preferences.theme === 'dark' ? 'selected' : ''}>深色</option></select></label><label>默认项目<select id="setting-default-project" class="field-control">${state.projects.map((project) => `<option value="${escapeHtml(project.name)}" ${preferredProject() === project.name ? 'selected' : ''}>${escapeHtml(project.name)}</option>`).join('')}</select></label><label>同时下载<select id="setting-download-concurrency" class="field-control"><option value="1" ${preferences.downloadConcurrency === 1 ? 'selected' : ''}>1 个任务</option><option value="2" ${preferences.downloadConcurrency === 2 ? 'selected' : ''}>2 个任务</option><option value="3" ${preferences.downloadConcurrency === 3 ? 'selected' : ''}>3 个任务</option><option value="4" ${preferences.downloadConcurrency === 4 ? 'selected' : ''}>4 个任务</option></select></label><label>默认输出<select id="setting-download-preset" class="field-control"><option value="package" ${preferences.downloadPreset === 'package' ? 'selected' : ''}>完整素材包</option><option value="video" ${preferences.downloadPreset === 'video' ? 'selected' : ''}>兼容 MP4</option><option value="source" ${preferences.downloadPreset === 'source' ? 'selected' : ''}>保留来源格式</option><option value="audio" ${preferences.downloadPreset === 'audio' ? 'selected' : ''}>只要音频</option></select></label>${preferences.downloadPreset !== 'audio' ? `<label>默认清晰度<select id="setting-download-quality" class="field-control"><option value="1080" ${preferences.downloadQuality === '1080' ? 'selected' : ''}>最高 1080p</option><option value="720" ${preferences.downloadQuality === '720' ? 'selected' : ''}>最高 720p</option><option value="best" ${preferences.downloadQuality === 'best' ? 'selected' : ''}>最佳可用</option></select></label><label class="check-setting"><input id="setting-save-subtitles" type="checkbox" ${preferences.saveSubtitles ? 'checked' : ''} ${preferences.downloadPreset === 'package' ? 'disabled' : ''}>默认保存字幕</label>` : ''}</div></div></section>
-        <section class="setting-card"><div class="setting-icon">${icon('puzzle')}</div><div class="setting-body"><div class="setting-title"><h2>浏览器收集</h2><span class="state-pill ${bridgeLoading ? 'neutral' : extensionActive ? 'success' : extensionVerified ? 'neutral' : 'warning'}">${bridgeBadge}</span></div><small class="setting-status-detail">${extensionDetail}</small>${extensionDistributionNote ? `<div class="extension-distribution-note">${extensionDistributionNote}</div>` : ''}<div class="setting-actions">${extensionAction}${extensionCheckAction}</div>${extensionTestDetails}</div></section>
+        <section class="setting-card"><div class="setting-icon">${icon('puzzle')}</div><div class="setting-body"><div class="setting-title"><h2>浏览器收集</h2><span class="state-pill ${bridgeLoading ? 'neutral' : extensionActive ? 'success' : extensionVerified ? 'neutral' : 'warning'}">${bridgeBadge}</span></div>${extensionDetailMarkup}${extensionDistributionNote ? `<div class="extension-distribution-note">${extensionDistributionNote}</div>` : ''}<div class="setting-actions">${extensionAction}${extensionCheckAction}</div>${extensionTestDetails}</div></section>
       </div>
       <div class="settings-column">
-        <section id="auth-settings" class="setting-card" tabindex="-1"><div class="setting-icon">${icon('key-round')}</div><div class="setting-body"><div class="setting-title"><h2>需要登录的视频</h2><span class="state-pill ${state.authLoginOpen ? 'warning' : state.authConfigured ? 'neutral' : 'neutral'}">${state.authLoginOpen ? '等待登录' : state.authConfigured ? '已保存登录配置' : '未设置'}</span></div><p class="setting-hint">仅在下载需要登录时，用独立窗口保存配置；不会读取日常浏览器账号。</p><div class="setting-actions">${state.authLoginOpen ? `<button class="button primary" data-action="finish-source-login">我已完成登录</button><button class="button" data-action="clear-source-browser">取消</button>` : `<button class="button" data-action="open-source-login" data-browser="chrome">${state.authConfigured && state.authBrowser === 'chrome' ? '重新打开 Chrome 登录' : '在 Chrome 中登录'}</button><button class="button" data-action="open-source-login" data-browser="edge">${state.authConfigured && state.authBrowser === 'edge' ? '重新打开 Edge 登录' : '在 Edge 中登录'}</button>${state.authConfigured ? '<button class="button danger-text" data-action="clear-source-browser">清除登录配置</button>' : ''}`}</div></div></section>
+        <section id="auth-settings" class="setting-card" tabindex="-1"><div class="setting-icon">${icon('key-round')}</div><div class="setting-body"><div class="setting-title"><h2>需要登录的视频</h2><span class="state-pill ${state.authLoginOpen ? 'warning' : state.authConfigured ? 'neutral' : 'neutral'}">${state.authLoginOpen ? '等待登录' : state.authConfigured ? '已验证登录' : '未设置'}</span></div><p class="setting-hint">请在打开的登录窗口完成登录，保持窗口打开后再检查。</p>${state.authLoginError ? `<div class="auth-login-error" role="alert">${escapeHtml(state.authLoginError)}</div>` : ''}<div class="setting-actions">${state.authLoginOpen ? `<button class="button primary" data-action="finish-source-login">检查登录状态</button><button class="button" data-action="clear-source-browser">取消</button>` : `${authBrowserControl}${state.authConfigured ? '<button class="button danger-text" data-action="clear-source-browser">清除登录配置</button>' : ''}`}</div></div></section>
         <section class="setting-card"><div class="setting-icon">${icon('hard-drive')}</div><div class="setting-body"><div class="setting-title"><h2>文件保存位置</h2><span class="state-pill ${components?.storageFreeBytes == null ? 'neutral' : components.storageFreeBytes < 536870912 ? 'warning' : 'success'}">${components?.storageFreeBytes == null ? '等待检测' : `${formatBytes(components.storageFreeBytes)} 可用`}</span></div><div class="storage-path" title="${escapeHtml(components?.downloadsDirectory || '')}">${escapeHtml(components?.downloadsDirectory || '尚未确定')}</div><div class="setting-actions"><button class="button primary" data-action="choose-downloads-directory">${icon('folder')}更改位置</button><button class="button" data-action="open-downloads-directory">${icon('external-link')}打开文件夹</button></div></div></section>
         <section id="components-settings" class="setting-card components-card" tabindex="-1"><div class="setting-icon">${icon('blocks')}</div><div class="setting-body"><div class="setting-title"><h2>所需工具</h2><span class="state-pill neutral">按需安装${components?.totalBytes ? ` · ${formatBytes(components.totalBytes)}` : ''}</span></div><div class="component-location"><div><strong>工具安装位置</strong><small title="${escapeHtml(components?.componentDirectory || '')}">${escapeHtml(components?.componentDirectory || '尚未确定')}</small></div><div class="setting-actions"><button class="button compact" data-action="choose-components-directory">${icon('folder')}更改位置</button><button class="button compact" data-action="open-components">${icon('external-link')}打开工具目录</button></div></div>${components?.installing ? `<div class="component-install-progress" role="status" aria-live="polite"><div><strong>${escapeHtml(installingTitle)} · ${componentCancelRequested ? '正在取消…' : installPhaseText}</strong><span>${installProgress}%</span></div><progress max="100" value="${installProgress}">${installProgress}%</progress><button class="button compact" data-action="cancel-active-component-install" ${componentCancelRequested ? 'disabled' : ''}>${componentCancelRequested ? '正在取消…' : '取消安装'}</button></div>` : componentInstallFailure ? `<div class="component-install-failure" role="alert"><span>${escapeHtml(componentInstallFailure)}</span><button class="button compact" data-action="dismiss-component-error">关闭</button></div>` : ''}<div class="component-list">
         ${componentRow('yt-dlp', '下载引擎', parserReady, parserReady ? `版本 ${escapeHtml(compactComponentVersion(components.ytDlpVersion))} · ${formatBytes(components.ytDlpBytes)}` : '识别视频链接并下载原画质内容')}
@@ -1147,6 +1190,10 @@ async function refreshSettingsState() {
   state.components = components;
   state.authConfigured = Boolean(auth?.configured);
   state.authBrowser = auth?.browser || null;
+  state.authBrowsers = Array.isArray(auth?.browsers) ? auth.browsers : [];
+  if (!state.authBrowserChoice || !state.authBrowsers.some((browser) => browser.id === state.authBrowserChoice && browser.installed)) {
+    state.authBrowserChoice = state.authBrowser || state.authBrowsers.find((browser) => browser.installed)?.id || null;
+  }
   state.authLoginOpen = Boolean(auth?.loginOpen);
 }
 
@@ -1925,12 +1972,16 @@ document.addEventListener('click', async (event) => {
       notify('工具已卸载，已保存的素材没有改变');
     } catch (error) { button.disabled = false; notify(readableError(error)); }
   } else if (button.dataset.action === 'open-source-login') {
+    if (button.disabled) return;
     try {
       setButtonBusy(button, '正在打开登录窗口…');
       const result = await invoke('open_source_login', { browser: button.dataset.browser, jobId: state.authRetryJobId });
       state.authConfigured = Boolean(result.configured);
       state.authBrowser = result.browser || null;
+      state.authBrowserChoice = result.browser || state.authBrowserChoice;
+      state.authBrowsers = Array.isArray(result.browsers) ? result.browsers : state.authBrowsers;
       state.authLoginOpen = Boolean(result.loginOpen);
+      state.authLoginError = '';
       render();
       notify('请在新窗口完成网站登录，然后回到 ClipCargo 确认');
     } catch (error) { clearButtonBusy(button); notify(readableError(error)); }
@@ -1940,7 +1991,10 @@ document.addEventListener('click', async (event) => {
       const result = await invoke('finish_source_login');
       state.authConfigured = Boolean(result.configured);
       state.authBrowser = result.browser || null;
+      state.authBrowserChoice = result.browser || state.authBrowserChoice;
+      state.authBrowsers = Array.isArray(result.browsers) ? result.browsers : state.authBrowsers;
       state.authLoginOpen = false;
+      state.authLoginError = '';
       const retryJobId = state.authRetryJobId;
       state.authRetryJobId = null;
       if (retryJobId) {
@@ -1950,17 +2004,30 @@ document.addEventListener('click', async (event) => {
       }
       render();
       notify(retryJobId ? '登录配置已保存，原任务已重新排队' : '登录配置已保存，遇到登录限制时会自动使用');
-    } catch (error) { clearButtonBusy(button); notify(readableError(error)); }
+    } catch (error) {
+      clearButtonBusy(button);
+      // 校验失败不等于浏览器已关闭，也不等于未打开登录流程。
+      // 保留“等待登录”界面，让用户完成登录后再次检查，不触发重新打开。
+      state.authLoginOpen = true;
+      state.authLoginError = readableError(error);
+      render();
+      notify(state.authLoginError);
+    }
   } else if (button.dataset.action === 'clear-source-browser') {
+    if (button.disabled) return;
     try {
+      setButtonBusy(button, '正在关闭登录窗口…');
       const result = await invoke('set_source_browser', { browser: null });
       state.authConfigured = Boolean(result.configured);
       state.authBrowser = null;
+      state.authBrowserChoice = null;
+      state.authBrowsers = Array.isArray(result.browsers) ? result.browsers : state.authBrowsers;
       state.authLoginOpen = false;
+      state.authLoginError = '';
       state.authRetryJobId = null;
       render();
       notify('已清除登录状态');
-    } catch (error) { notify(readableError(error)); }
+    } catch (error) { clearButtonBusy(button); notify(readableError(error)); }
   } else if (button.dataset.action === 'open-components') {
     try { await invoke('open_components_directory'); }
     catch (error) { notify(readableError(error)); }
@@ -1998,7 +2065,7 @@ document.addEventListener('click', async (event) => {
     try {
       await Promise.all([
         refreshSettingsState(),
-        new Promise((resolve) => setTimeout(resolve, 420)),
+          new Promise((resolve) => setTimeout(resolve, 2000)),
       ]);
       if (state.bridge?.extensionActive) notify('已检测到浏览器扩展正在运行');
       else if (state.bridge?.extensionVerified) notify('扩展已安装；打开浏览器后会自动恢复连接');
@@ -2191,6 +2258,7 @@ main.addEventListener('change', (event) => {
   else if (event.target.id === 'setting-download-preset') { preferences.downloadPreset = event.target.value; savePreferences(); render(); }
   else if (event.target.id === 'setting-download-quality') { preferences.downloadQuality = event.target.value; savePreferences(); }
   else if (event.target.id === 'setting-save-subtitles') { preferences.saveSubtitles = event.target.checked; savePreferences(); }
+  else if (event.target.id === 'setting-auth-browser') { state.authBrowserChoice = event.target.value; render(); }
 });
 
 document.querySelector('#dialog-close').addEventListener('click', closeDialog);
@@ -2553,8 +2621,24 @@ async function initializeLocalDrop() {
 }
 
 render();
-refreshInbox().finally(() => scheduleRefresh());
-refreshEditorState().then(render);
-if (state.view === 'browser') refreshSettingsState().then(render);
+// The native window starts hidden so Windows never exposes a blank WebView.
+// Reveal it only after the first rendered frame is ready.
+requestAnimationFrame(() => {
+  if (typeof invoke === 'function') invoke('window_ready').catch(() => {});
+});
+// A settings-first launch should not spend its first interaction window on
+// inbox/database work that is not visible yet. Load it shortly after the
+// first frame; the inbox/tasks views still hydrate immediately when opened.
+const bootRefresh = () => refreshInbox().finally(() => scheduleRefresh());
+if (state.view === 'browser') setTimeout(bootRefresh, 250);
+else bootRefresh();
+// Editor discovery performs several registry reads. It is secondary metadata,
+// so keep it off the first interaction frame on every view.
+setTimeout(() => refreshEditorState().then(render), 800);
+// Let the first frame paint before the settings page starts registry, tool,
+// and browser-session checks. This avoids the cold-start white/blank pause.
+// Keep the first interaction responsive. Browser/bridge checks are useful,
+// but they are secondary to opening an interactive settings page.
+if (state.view === 'browser') setTimeout(() => refreshSettingsState().then(render), 1000);
 initializeLocalDrop().catch(() => {});
 document.addEventListener('visibilitychange', () => scheduleRefresh(document.hidden ? 15_000 : 0));
