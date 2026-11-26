@@ -11,6 +11,7 @@ function isHttpUrl(value) {
 const QUEUE_KEY = 'pendingCaptures';
 const MAX_PENDING_CAPTURES = 200;
 const QUEUE_RETRY_ALARM = 'clipcargo-flush-pending';
+const QUEUE_RETRY_LIMIT = 8;
 const MEDIA_SITES_KEY = 'mediaSites';
 const CUSTOM_SCRIPT_PREFIX = 'clipcargo-site-';
 let queueOperation = Promise.resolve();
@@ -69,6 +70,10 @@ function envelopeFor({ pageUrl, title = '', projectName = '未分类', method = 
   };
 }
 
+function queueEntry(message) {
+  return { ...message, queuedAt: Date.now(), attempts: 0, lastError: '' };
+}
+
 function bridgeStatusEnvelope() {
   return {
     protocolVersion: 1,
@@ -99,7 +104,7 @@ function enqueue(message) {
     if (queue.length >= MAX_PENDING_CAPTURES) {
       throw new Error(`离线待发送队列已满（${MAX_PENDING_CAPTURES} 条），请先打开 ClipCargo 桌面端完成发送。`);
     }
-    queue.push(message);
+    queue.push(queueEntry(message));
     await chrome.storage.local.set({ [QUEUE_KEY]: queue });
     return { queued: true, duplicate: false, size: queue.length };
   });
@@ -114,14 +119,32 @@ function flushQueue() {
     for (let index = 0; index < queue.length; index += 1) {
       const message = queue[index];
       try { await sendEnvelope(message); sent += 1; }
-      catch {
-        remaining.push(...queue.slice(index));
+      catch (error) {
+        const attempts = Math.min(QUEUE_RETRY_LIMIT, Number(message.attempts || 0) + 1);
+        remaining.push({
+          ...message,
+          attempts,
+          lastError: String(error?.message || error || 'native host unavailable').slice(0, 240),
+          lastAttemptAt: Date.now(),
+        });
+        remaining.push(...queue.slice(index + 1));
         break;
       }
     }
     await chrome.storage.local.set({ [QUEUE_KEY]: remaining });
     return { sent, remaining: remaining.length };
   });
+}
+
+async function queueStatus() {
+  const queue = await readQueue();
+  const first = queue[0];
+  return {
+    pending: queue.length,
+    capacity: MAX_PENDING_CAPTURES,
+    oldestQueuedAt: Number.isFinite(first?.queuedAt) ? first.queuedAt : null,
+    lastError: first?.lastError || '',
+  };
 }
 
 function ensureQueueAlarm() {

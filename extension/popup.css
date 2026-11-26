@@ -42,6 +42,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .message.ready { color: #26745a; }
 .message.queued { color: #8a5a10; }
 .message.error { color: #a93343; }
+.queue-status { margin: 7px 0 0; padding: 6px 7px; border-radius: 6px; color: #8a5a13; background: #fff3df; font-size: 9.5px; line-height: 1.4; }
+.queue-status:empty { display: none; }
 .site-control { margin-top: 8px; padding: 7px 0 0; border-top: 1px solid var(--border); }
 .site-control[hidden] { display: none; }
 .site-control-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

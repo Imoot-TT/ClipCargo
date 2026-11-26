@@ -98,6 +98,7 @@ window.__TAURI__ = {
         if (harnessSlowBridge) await new Promise((resolve) => setTimeout(resolve, 700));
         return { hostName: 'net.clipcargo.native', queuePath: 'ClipCargo 队列', protocolVersion: 1, hostInstalled: harnessBridgeHostInstalled, registered: harnessBridgeRegistered, extensionId: harnessBridgeRegistered ? (harnessStoreExtension ? 'maenmnckhgckmkcaijmpeghkcfhchiha' : 'dpogajmenckmdbpacaoilnhhdcjpbheb') : null, extensionVerified: harnessExtensionVerified, extensionActive: harnessExtensionActive, extensionVersion: harnessExtensionVerified ? (harnessStoreExtension ? '0.1.6' : '0.1.0') : null, extensionPackageVersion: '0.1.0', debugBuild: !harnessStoreExtension, lastSeenAt: harnessExtensionVerified ? 1794210400 : null };
       }
+      if (command === 'app_info') return { applicationVersion: '0.1.6', extensionVersion: '0.1.0', bridgeProtocolVersion: 1, checkedAt: 1794210400 };
       if (command === 'component_status') {
         const ytDlpBytes = harnessYtDlpReady ? 18_874_368 : 0;
         const ffmpegBytes = harnessFfmpegReady ? 188_743_680 : 0;

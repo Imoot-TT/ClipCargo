@@ -1,0 +1,12 @@
+/* Shared visual tokens for the desktop shell and future views. */
+:root {
+  --surface-soft: light-dark(#f7f8fb, #1f2126);
+  --text-secondary: var(--muted);
+  --icon-size-help: 14px;
+  --icon-size-control: 16px;
+  --icon-size-navigation: 18px;
+  --icon-size-feature: 22px;
+  --control-radius: 8px;
+  --panel-radius: 12px;
+  --settings-nav-width: 184px;
+}

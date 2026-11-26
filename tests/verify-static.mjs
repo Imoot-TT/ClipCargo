@@ -105,7 +105,7 @@ if (!app.includes('role="tab" aria-selected="${state.taskFilter')) throw new Err
 for (const taskGroupingMarker of ['function taskMatchesFilter', "filter === 'attention'", "!userCancelled(item)", "['active', '进行中']", "['attention', '需处理']", "['history', '历史']"]) {
   if (!app.includes(taskGroupingMarker)) throw new Error(`Task status grouping is incomplete: ${taskGroupingMarker}`);
 }
-for (const taskCountMarker of ["taskMatchesFilter(job, 'attention')", "taskMatchesFilter(item, 'attention')", 'taskCount.hidden = actionableTaskCount === 0']) {
+for (const taskCountMarker of ["taskMatchesFilter(job, 'attention')", 'ClipCargoJobModel', 'unifiedJobs', 'taskCount.hidden = actionableTaskCount === 0']) {
   if (!app.includes(taskCountMarker)) throw new Error(`Task navigation count misses actionable failures: ${taskCountMarker}`);
 }
 for (const recoveryRouteMarker of ['function taskRecoveryButton', "code === 'AUTH_REQUIRED'", 'data-settings-target="auth-settings"', "code === 'COMPONENT_MISSING'", 'data-settings-target="components-settings"', "button.dataset.action === 'open-settings-section'", 'target?.focus({ preventScroll: true })']) {
@@ -204,7 +204,7 @@ if (/[✓…]/.test(extensionBackground)) throw new Error('Extension badge still
 for (const badgeMarker of ['setCaptureBadge', "text: 'OK'", "text: '1'", 'setBadgeBackgroundColor']) {
   if (!extensionBackground.includes(badgeMarker)) throw new Error(`Extension badge semantics are incomplete: ${badgeMarker}`);
 }
-for (const queueSafetyMarker of ['MAX_PENDING_CAPTURES = 200', 'withQueueLock', 'item.payload?.pageUrl === message.payload?.pageUrl', '离线待发送队列已满', "QUEUE_RETRY_ALARM = 'clipcargo-flush-pending'", 'chrome.alarms.onAlarm.addListener', 'remaining.push(...queue.slice(index))']) {
+for (const queueSafetyMarker of ['MAX_PENDING_CAPTURES = 200', 'withQueueLock', 'item.payload?.pageUrl === message.payload?.pageUrl', '离线待发送队列已满', "QUEUE_RETRY_ALARM = 'clipcargo-flush-pending'", 'chrome.alarms.onAlarm.addListener', 'remaining.push(...queue.slice(index + 1))', 'lastError']) {
   if (!extensionBackground.includes(queueSafetyMarker)) throw new Error(`Extension offline queue safety is incomplete: ${queueSafetyMarker}`);
 }
 for (const stateText of ['可收集', '已送达', '已暂存', '发送失败']) {

@@ -1,6 +1,7 @@
 const title = document.querySelector('#page-title');
 const button = document.querySelector('#capture');
 const message = document.querySelector('#message');
+const queueStatus = document.querySelector('#queue-status');
 const stateLabel = document.querySelector('#state-label');
 let currentTab;
 const project = document.querySelector('#project');
@@ -13,6 +14,18 @@ const siteControl = document.querySelector('.site-control');
 const projectsList = document.querySelector('#projects-list');
 const BUILT_IN_SITES = new Set(['youtube.com', 'xiaohongshu.com', 'douyin.com', 'tiktok.com', 'bilibili.com', 'x.com', 'twitter.com', 'instagram.com', 'facebook.com', 'vimeo.com', 'dailymotion.com', 'twitch.tv']);
 let currentHost = '';
+
+async function refreshQueueStatus() {
+  try {
+    const stored = await chrome.storage.local.get('pendingCaptures');
+    const queue = Array.isArray(stored.pendingCaptures) ? stored.pendingCaptures : [];
+    queueStatus.hidden = queue.length === 0;
+    queueStatus.textContent = queue.length ? `桌面端离线，${queue.length} 条链接已安全暂存，连接恢复后自动发送。` : '';
+    queueStatus.className = queue.length ? 'queue-status queued' : 'queue-status';
+  } catch {
+    queueStatus.hidden = true;
+  }
+}
 
 function siteKey(value) {
   try { return new URL(value).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; }
@@ -165,6 +178,7 @@ chrome.storage.local.get(['lastProject', 'recentProjects']).then((stored) => {
   projectsList.innerHTML = [...new Set(recent)].map((value) => `<option value="${value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"></option>`).join('');
   if (typeof stored.lastProject === 'string' && stored.lastProject.trim()) project.value = stored.lastProject.slice(0, 50);
 });
+refreshQueueStatus();
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -197,6 +211,7 @@ form.addEventListener('submit', async (event) => {
     button.textContent = queued ? '已暂存，等待桌面端' : '已收进 ClipCargo';
     message.textContent = queued ? '桌面端未连接；链接已保存在扩展中，下次连接会自动发送。' : '页面链接已写入 ClipCargo。';
     message.className = `message ${queued ? 'queued' : 'ready'}`;
+    refreshQueueStatus();
   } catch (error) {
     button.disabled = false;
     button.textContent = '重新发送';
@@ -204,5 +219,6 @@ form.addEventListener('submit', async (event) => {
     stateLabel.textContent = '发送失败';
     message.textContent = String(error?.message || error);
     message.className = 'message error';
+    refreshQueueStatus();
   }
 });

@@ -4,6 +4,7 @@
   <p>A Windows desktop app for collecting web video pages you choose, then organizing, downloading, processing, and playing media locally.</p>
   <p><strong>English</strong> · <a href="README.zh-CN.md">中文</a></p>
   <p>
+    <a href="https://github.com/Imoot-TT/ClipCargo/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Imoot-TT/ClipCargo/actions/workflows/ci.yml/badge.svg"></a>
     <img alt="Desktop version" src="https://img.shields.io/badge/desktop-latest-5364d9">
     <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20x64-0078d4">
     <img alt="Browser extension" src="https://img.shields.io/badge/browser-Chrome-4285f4">
@@ -34,6 +35,10 @@ The browser extension processes only the URL, title, and project name for pages 
 ## License
 
 ClipCargo is proprietary software. See the [End User License Agreement](docs/END_USER_LICENSE_AGREEMENT.md) and [LICENSE](LICENSE).
+
+## Development and releases
+
+The repository uses Windows CI for source checks, Rust tests, extension packaging, and version consistency. Tagged releases (`vMAJOR.MINOR.PATCH`) build the Windows installer and Chrome Web Store package, publish SHA-256 checksums, and attach them to the GitHub release. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [release checklist](docs/RELEASE-CHECKLIST.md).
 
 ## Independent product
 

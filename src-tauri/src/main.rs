@@ -468,6 +468,15 @@ struct ComponentStatus {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct AppInfo {
+    application_version: String,
+    extension_version: Option<String>,
+    bridge_protocol_version: u8,
+    checked_at: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ComponentInstallStatus {
     installing: bool,
     install_phase: String,
@@ -6841,6 +6850,16 @@ fn extension_package_version(extension_dir: &Path) -> Option<String> {
 }
 
 #[tauri::command]
+fn app_info(state: State<'_, AppState>) -> AppInfo {
+    AppInfo {
+        application_version: env!("CARGO_PKG_VERSION").to_owned(),
+        extension_version: extension_package_version(&state.extension_dir),
+        bridge_protocol_version: 1,
+        checked_at: unix_seconds().max(0) as u64,
+    }
+}
+
+#[tauri::command]
 fn component_status(state: State<'_, AppState>) -> ComponentStatus {
     let downloads_dir = current_downloads_dir(&state).unwrap_or_default();
     let components_dir = current_components_dir(&state).unwrap_or_default();
@@ -8044,6 +8063,7 @@ fn main() {
             update_inbox_details,
             open_source_page,
             bridge_status,
+            app_info,
             component_status,
             component_install_status,
             install_yt_dlp,

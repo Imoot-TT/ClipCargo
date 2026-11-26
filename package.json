@@ -9,11 +9,12 @@
     "build": "tauri build --no-bundle",
     "bundle:win": "tauri build --bundles nsis",
     "check": "npm run check:source && cargo test --manifest-path src-tauri/Cargo.toml",
-    "check:source": "node --check src/app.js && node --check src/link-utils.js && node --check extension/background.js && node --check extension/popup.js && node --check extension/content.js && node --check tests/ui-harness-mock.js && node --check tests/extension-popup-mock.js && node --check tests/extension-content-mock.js && node --check tests/x-content-mock.js && node --check tests/ui-harness-server.mjs && node --check tests/qa-screenshot-receiver.mjs && node tests/verify-static.mjs && node tests/link-analysis-smoke.mjs && node tests/extension-queue-smoke.mjs && node tests/command-contract-smoke.mjs",
+    "check:source": "node --check src/app.js && node --check src/api/tauri.js && node --check src/components/tooltip.js && node --check src/state/jobs.js && node --check src/link-utils.js && node --check extension/background.js && node --check extension/popup.js && node --check extension/content.js && node --check tests/ui-harness-mock.js && node --check tests/extension-popup-mock.js && node --check tests/extension-content-mock.js && node --check tests/x-content-mock.js && node --check tests/ui-harness-server.mjs && node --check tests/qa-screenshot-receiver.mjs && node tests/verify-static.mjs && node tests/link-analysis-smoke.mjs && node tests/extension-queue-smoke.mjs && node tests/command-contract-smoke.mjs",
     "check:native-host": "node tests/native-host-smoke.mjs",
     "test:ui-harness": "node tests/ui-harness-server.mjs",
     "package:extension": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1",
     "package:store-extension": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1 -Store",
+    "check:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1",
     "check:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "measure": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/measure-package.ps1",
     "licenses": "node scripts/generate-license-bundle.mjs"
