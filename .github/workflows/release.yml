@@ -25,6 +25,8 @@ jobs:
           toolchain: stable-x86_64-pc-windows-msvc
       - name: Install JavaScript dependencies
         run: npm ci
+      - name: Regenerate dependency license inventory
+        run: npm run licenses
       - name: Verify release version
         run: npm run check:release -- -ExpectedVersion "${{ github.ref_name }}"
       - name: Run release checks
