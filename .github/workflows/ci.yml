@@ -29,8 +29,24 @@ jobs:
         run: npm ci
       - name: Verify version contract
         run: npm run check:release
-      - name: Run source and extension checks
-        run: npm run check:source
+      - name: Check JavaScript syntax
+        run: >-
+          node --check src/app.js &&
+          node --check src/api/tauri.js &&
+          node --check src/components/tooltip.js &&
+          node --check src/state/jobs.js &&
+          node --check src/link-utils.js &&
+          node --check extension/background.js &&
+          node --check extension/popup.js &&
+          node --check extension/content.js
+      - name: Run static contract checks
+        run: node tests/verify-static.mjs
+      - name: Run link analysis smoke test
+        run: node tests/link-analysis-smoke.mjs
+      - name: Run extension queue smoke test
+        run: node tests/extension-queue-smoke.mjs
+      - name: Run command contract smoke test
+        run: node tests/command-contract-smoke.mjs
       - name: Run Rust tests
         run: npm run check:rust
       - name: Package store extension
