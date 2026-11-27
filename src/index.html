@@ -18,7 +18,7 @@
     <div class="workspace">
       <aside class="sidebar">
         <nav aria-label="主导航">
-          <button class="nav-item active" data-view="inbox" aria-label="收集箱"><span class="nav-icon" style="--icon:url('./assets/icons/inbox.svg')" aria-hidden="true"></span><span class="nav-label">收集</span><span id="inbox-count" class="nav-count">0</span></button>
+          <button class="nav-item active" data-view="inbox" aria-label="收集"><span class="nav-icon" style="--icon:url('./assets/icons/inbox.svg')" aria-hidden="true"></span><span class="nav-label">收集</span><span id="inbox-count" class="nav-count">0</span></button>
           <button class="nav-item" data-view="tasks" aria-label="任务"><span class="nav-icon" style="--icon:url('./assets/icons/list-checks.svg')" aria-hidden="true"></span><span class="nav-label">任务</span><span id="task-count" class="nav-count">0</span></button>
           <button class="nav-item" data-view="library" aria-label="素材库"><span class="nav-icon" style="--icon:url('./assets/icons/film.svg')" aria-hidden="true"></span><span class="nav-label">素材</span></button>
           <button class="nav-item" data-view="browser" aria-label="设置"><span class="nav-icon" style="--icon:url('./assets/icons/settings.svg')" aria-hidden="true"></span><span class="nav-label">设置</span></button>
@@ -42,7 +42,7 @@
         <div id="project-options" class="project-combobox-menu" role="listbox" hidden></div>
       </div>
       <p id="form-error" class="form-error" role="alert"></p>
-      <div class="dialog-actions"><button id="dialog-cancel" class="button">取消</button><button id="import-button" class="button primary">加入收集箱</button></div>
+      <div class="dialog-actions"><button id="dialog-cancel" class="button">取消</button><button id="import-button" class="button primary">加入收集</button></div>
     </section>
   </div>
   <div id="project-backdrop" class="dialog-backdrop" hidden>
@@ -142,7 +142,7 @@
       <label class="field-label" for="batch-move-project">目标项目</label>
       <select id="batch-move-project" class="field-control"></select>
       <p id="batch-move-error" class="form-error" role="alert"></p>
-      <div class="dialog-actions"><button id="batch-move-cancel" class="button">取消</button><button id="batch-move-submit" class="button primary">移动</button></div>
+      <div class="dialog-actions"><button id="batch-move-cancel" class="button">取消</button><button id="batch-move-submit" class="button primary">移动到项目</button></div>
     </section>
   </div>
   <div id="media-edit-backdrop" class="dialog-backdrop" hidden>

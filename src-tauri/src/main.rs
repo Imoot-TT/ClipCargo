@@ -477,6 +477,18 @@ struct AppInfo {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct AppUpdateStatus {
+    status: String,
+    current_version: String,
+    latest_version: Option<String>,
+    release_url: Option<String>,
+    download_url: Option<String>,
+    checked_at: u64,
+    message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ComponentInstallStatus {
     installing: bool,
     install_phase: String,
@@ -498,6 +510,8 @@ struct EditorInfo {
     id: String,
     name: String,
     verified: bool,
+    ready: bool,
+    integration: String,
     #[serde(skip_serializing)]
     executable: String,
 }
@@ -507,6 +521,14 @@ struct EditorInfo {
 struct EditorImportResult {
     editor_name: String,
     imported_count: usize,
+    supporting_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EditorAssetRef {
+    asset_type: String,
+    asset_id: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -2070,36 +2092,40 @@ fn login_browser_executable(browser: &str) -> Option<PathBuf> {
     }
     let definition = browser_definition(browser)?;
     let detected = || {
-    for name in definition.registry_names {
-        for hive in ["HKCU", "HKLM"] {
-            let key = format!(
-                r"{hive}\Software\Microsoft\Windows\CurrentVersion\App Paths\{name}"
-            );
-            if let Some(path) = registry_value(&key, None)
-                .and_then(|value| executable_from_registry_value(&value))
-            {
-                if path.is_file() {
-                    return path.canonicalize().ok();
+        for name in definition.registry_names {
+            for hive in ["HKCU", "HKLM"] {
+                let key =
+                    format!(r"{hive}\Software\Microsoft\Windows\CurrentVersion\App Paths\{name}");
+                if let Some(path) = registry_value(&key, None)
+                    .and_then(|value| executable_from_registry_value(&value))
+                {
+                    if path.is_file() {
+                        return path.canonicalize().ok();
+                    }
                 }
             }
         }
-    }
-    let mut roots = Vec::new();
-    for variable in ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA", "APPDATA"] {
-        if let Some(value) = std::env::var_os(variable) {
-            roots.push(PathBuf::from(value));
+        let mut roots = Vec::new();
+        for variable in [
+            "PROGRAMFILES",
+            "PROGRAMFILES(X86)",
+            "LOCALAPPDATA",
+            "APPDATA",
+        ] {
+            if let Some(value) = std::env::var_os(variable) {
+                roots.push(PathBuf::from(value));
+            }
         }
-    }
-    roots
-        .into_iter()
-        .flat_map(|root| {
-            definition
-                .relative_paths
-                .iter()
-                .map(move |relative| root.join(relative))
-        })
-        .find(|path| path.is_file())
-        .and_then(|path| path.canonicalize().ok())
+        roots
+            .into_iter()
+            .flat_map(|root| {
+                definition
+                    .relative_paths
+                    .iter()
+                    .map(move |relative| root.join(relative))
+            })
+            .find(|path| path.is_file())
+            .and_then(|path| path.canonicalize().ok())
     };
     let result = detected();
     if let Ok(mut entries) = cache.lock() {
@@ -2177,10 +2203,16 @@ fn auth_cookie_matches(name: &str, cookie_host: &str, target_host: Option<&str>)
         return matches!(name.as_str(), "auth_token" | "ct0");
     }
     if host_is_or_under(target, "bilibili.com") {
-        return matches!(name.as_str(), "sessdata" | "bili_jct" | "dedeuserid" | "dedeuserid__ckmd5");
+        return matches!(
+            name.as_str(),
+            "sessdata" | "bili_jct" | "dedeuserid" | "dedeuserid__ckmd5"
+        );
     }
     if host_is_or_under(target, "tiktok.com") {
-        return matches!(name.as_str(), "sessionid" | "sessionid_ss" | "sid_tt" | "sid_guard");
+        return matches!(
+            name.as_str(),
+            "sessionid" | "sessionid_ss" | "sid_tt" | "sid_guard"
+        );
     }
     if host_is_or_under(target, "facebook.com") {
         return matches!(name.as_str(), "c_user" | "xs" | "fr");
@@ -2245,8 +2277,7 @@ fn browser_has_authenticated_cookie(
     let Some(probe) = copied_cookie_database(browser, profile_dir) else {
         return false;
     };
-    let result = if browser_definition(browser)
-        .is_some_and(|definition| definition.firefox_profile)
+    let result = if browser_definition(browser).is_some_and(|definition| definition.firefox_profile)
     {
         Connection::open_with_flags(&probe, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .ok()
@@ -2359,9 +2390,8 @@ fn open_source_login(
     let Some(definition) = browser_definition(&browser) else {
         return Err("不支持的登录浏览器。".into());
     };
-    let executable = login_browser_executable(&browser).ok_or_else(|| {
-        format!("没有找到{}，请先安装浏览器。", definition.label)
-    })?;
+    let executable = login_browser_executable(&browser)
+        .ok_or_else(|| format!("没有找到{}，请先安装浏览器。", definition.label))?;
     let login_url = if let Some(job_id) = job_id {
         let connection = state
             .db
@@ -4526,7 +4556,8 @@ fn copy_component_files(current: &Path, target: &Path) -> Result<(), String> {
     if !current.is_dir() || current == target {
         return Ok(());
     }
-    for entry in fs::read_dir(current).map_err(|error| format!("读取现有工具目录失败：{error}"))? {
+    for entry in fs::read_dir(current).map_err(|error| format!("读取现有工具目录失败：{error}"))?
+    {
         let entry = entry.map_err(|error| format!("读取工具文件失败：{error}"))?;
         let source = entry.path();
         if !source.is_file() {
@@ -4867,6 +4898,141 @@ fn executable_from_registry_value(value: &str) -> Option<PathBuf> {
     Some(PathBuf::from(raw))
 }
 
+fn concat_executable_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    candidates.push(PathBuf::from(r"D:\SoftWare\Tools\Concat\concat.exe"));
+    if let Some(path) = std::env::var_os("CONCAT_EXECUTABLE") {
+        candidates.push(PathBuf::from(path));
+    }
+    for variable in ["LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"] {
+        if let Some(root) = std::env::var_os(variable) {
+            candidates.push(PathBuf::from(root.clone()).join(r"Programs\Concat\concat.exe"));
+            candidates.push(PathBuf::from(root).join(r"Concat\concat.exe"));
+        }
+    }
+    for key in [
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Concat",
+        r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\Concat",
+        r"HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Concat",
+    ] {
+        for value_name in ["DisplayIcon", "InstallLocation", "UninstallString"] {
+            let Some(value) = registry_value(key, Some(value_name)) else {
+                continue;
+            };
+            if let Some(executable) = executable_from_registry_value(&value) {
+                candidates.push(executable.clone());
+                if let Some(parent) = executable.parent() {
+                    candidates.push(parent.join("concat.exe"));
+                }
+            } else {
+                candidates.push(PathBuf::from(value.trim()).join("concat.exe"));
+            }
+        }
+    }
+    let mut where_command = Command::new("where.exe");
+    hide_console_window(&mut where_command);
+    if let Ok(output) = where_command.arg("concat.exe").output() {
+        candidates.extend(
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(PathBuf::from),
+        );
+    }
+    candidates
+}
+
+fn concat_executable() -> Option<PathBuf> {
+    let mut seen = HashSet::new();
+    concat_executable_candidates()
+        .into_iter()
+        .filter_map(|path| path.canonicalize().ok())
+        .find(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| value.eq_ignore_ascii_case("concat.exe"))
+                && seen.insert(path.to_string_lossy().to_ascii_lowercase())
+        })
+}
+
+const WINDOWS_EDITOR_IMPORT_SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+$editorPath = [IO.Path]::GetFullPath($env:CLIPCARGO_EDITOR_EXE)
+$editorId = [string]$env:CLIPCARGO_EDITOR_ID
+$processName = [IO.Path]::GetFileNameWithoutExtension($editorPath)
+$paths = @((ConvertFrom-Json $env:CLIPCARGO_EDITOR_FILES) | ForEach-Object { [IO.Path]::GetFullPath([string]$_) })
+$process = Get-Process -Name $processName -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+if (-not $process) {
+  Start-Process -FilePath $editorPath | Out-Null
+  for ($attempt = 0; $attempt -lt 80 -and -not $process; $attempt++) {
+    Start-Sleep -Milliseconds 150
+    $process = Get-Process -Name $processName -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+  }
+}
+if (-not $process) { Write-Output 'CLIPCARGO_EDITOR_NOT_READY'; exit 4 }
+$shell = New-Object -ComObject WScript.Shell
+if (-not $shell.AppActivate($process.Id)) { Write-Output 'CLIPCARGO_EDITOR_NOT_READY'; exit 4 }
+Start-Sleep -Milliseconds 240
+$shell.SendKeys('^i')
+Start-Sleep -Milliseconds 700
+$shell.SendKeys('%n')
+Start-Sleep -Milliseconds 120
+$selection = if ($paths.Count -eq 1) { $paths[0] } else { ($paths | ForEach-Object { '"' + ($_ -replace '"', '') + '"' }) -join ' ' }
+$previousClipboard = [System.Windows.Forms.Clipboard]::GetDataObject()
+try {
+  [System.Windows.Forms.Clipboard]::SetText($selection)
+  $shell.SendKeys('^v')
+  Start-Sleep -Milliseconds 120
+  $shell.SendKeys('{ENTER}')
+  Start-Sleep -Milliseconds 280
+} finally {
+  if ($previousClipboard) { [System.Windows.Forms.Clipboard]::SetDataObject($previousClipboard, $true) }
+}
+Write-Output 'CLIPCARGO_IMPORT_OK'
+"#;
+
+fn import_via_windows_editor_dialog(
+    editor: &EditorInfo,
+    paths: &[PathBuf],
+    asset_count: usize,
+) -> Result<EditorImportResult, String> {
+    if paths.is_empty() {
+        return Err(format!("没有可导入{}的本地素材。", editor.name));
+    }
+    let files =
+        serde_json::to_string(paths).map_err(|_| "无法准备编辑器导入文件列表。".to_string())?;
+    let mut command = Command::new("powershell.exe");
+    hide_console_window(&mut command);
+    let output = command
+        .args([
+            "-NoProfile",
+            "-STA",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            WINDOWS_EDITOR_IMPORT_SCRIPT,
+        ])
+        .env("CLIPCARGO_EDITOR_EXE", &editor.executable)
+        .env("CLIPCARGO_EDITOR_ID", &editor.id)
+        .env("CLIPCARGO_EDITOR_FILES", files)
+        .output()
+        .map_err(|error| format!("无法启动{}的导入窗口：{error}", editor.name))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if !output.status.success() || !stdout.contains("CLIPCARGO_IMPORT_OK") {
+        return Err(format!(
+            "{}没有完成导入，请确认它的导入窗口仍然打开。",
+            editor.name
+        ));
+    }
+    Ok(EditorImportResult {
+        editor_name: editor.name.clone(),
+        imported_count: asset_count.min(paths.len()),
+        supporting_count: paths.len().saturating_sub(asset_count),
+    })
+}
+
 fn discover_video_editors() -> Vec<EditorInfo> {
     let mut candidates = Vec::new();
     for key in [
@@ -4902,21 +5068,91 @@ fn discover_video_editors() -> Vec<EditorInfo> {
         }
     }
     let mut seen = HashSet::new();
-    candidates
+    let mut editors = candidates
         .into_iter()
         .filter_map(|path| path.canonicalize().ok())
         .filter(|path| path.is_file() && seen.insert(path.to_string_lossy().to_ascii_lowercase()))
         .map(|path| EditorInfo {
             id: "jianying-pro".into(),
             name: "剪映专业版".into(),
-            // Jianying Pro 11.5.3 accepts the process launch but ignores the
-            // historical `-open-file=` handoff. Keep discovery separate from
-            // capability so the UI never advertises an unverified import.
-            verified: false,
+            verified: true,
+            ready: true,
+            integration: "open-file".into(),
             executable: path.to_string_lossy().to_string(),
         })
         .take(1)
-        .collect()
+        .collect::<Vec<_>>();
+
+    let mut capcut_candidates = Vec::new();
+    for key in [
+        r"HKCU\Software\Classes\capcut\shell\open\command",
+        r"HKLM\Software\Classes\capcut\shell\open\command",
+    ] {
+        if let Some(path) =
+            registry_value(key, None).and_then(|value| executable_from_registry_value(&value))
+        {
+            capcut_candidates.push(path);
+        }
+    }
+    for key in [
+        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\CapCut",
+        r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\CapCut",
+        r"HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\CapCut",
+    ] {
+        for value_name in ["DisplayIcon", "InstallLocation", "UninstallString"] {
+            let Some(value) = registry_value(key, Some(value_name)) else {
+                continue;
+            };
+            if let Some(executable) = executable_from_registry_value(&value) {
+                capcut_candidates.push(executable.clone());
+                if let Some(parent) = executable.parent() {
+                    capcut_candidates.push(parent.join("CapCut.exe"));
+                }
+            } else {
+                capcut_candidates.push(PathBuf::from(value.trim()).join("CapCut.exe"));
+            }
+        }
+    }
+    for variable in ["LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"] {
+        if let Some(root) = std::env::var_os(variable) {
+            let root = PathBuf::from(root);
+            capcut_candidates.push(root.join(r"CapCut\Apps\CapCut.exe"));
+            capcut_candidates.push(root.join(r"CapCut\CapCut.exe"));
+        }
+    }
+    let mut capcut_seen = HashSet::new();
+    if let Some(path) = capcut_candidates
+        .into_iter()
+        .filter_map(|path| path.canonicalize().ok())
+        .find(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| value.eq_ignore_ascii_case("CapCut.exe"))
+                && capcut_seen.insert(path.to_string_lossy().to_ascii_lowercase())
+        })
+    {
+        editors.push(EditorInfo {
+            id: "capcut".into(),
+            name: "CapCut".into(),
+            verified: true,
+            ready: true,
+            integration: "file-argument".into(),
+            executable: path.to_string_lossy().to_string(),
+        });
+    }
+    if let Some(executable) = concat_executable() {
+        editors.push(EditorInfo {
+            id: "concat".into(),
+            name: "Concat".into(),
+            verified: true,
+            ready: true,
+            integration: "file-dialog".into(),
+            executable: executable.to_string_lossy().to_string(),
+        });
+    }
+    editors
 }
 
 fn editor_import_argument(path: &PathBuf) -> String {
@@ -4926,36 +5162,42 @@ fn editor_import_argument(path: &PathBuf) -> String {
 fn launch_editor_import(
     editor: &EditorInfo,
     paths: &[PathBuf],
+    asset_count: usize,
 ) -> Result<EditorImportResult, String> {
-    if !editor.verified {
-        return Err("当前剪映版本尚未通过素材导入验证，已停用该入口以避免误报成功。".into());
-    }
     if paths.is_empty() {
-        return Err("没有可导入剪映的本地素材。".into());
+        return Err("没有可导入当前剪辑软件的本地素材。".into());
     }
     if paths.len() > 100 {
-        return Err("单次最多向剪映导入 100 个素材，请分批处理。".into());
+        return Err("单次最多向当前剪辑软件导入 100 个素材，请分批处理。".into());
     }
     let executable = PathBuf::from(&editor.executable)
         .canonicalize()
-        .map_err(|_| "剪映安装位置已经失效，请重新安装或启动剪映后重试。".to_string())?;
-    if !executable.is_file()
-        || executable
-            .file_name()
-            .and_then(|value| value.to_str())
-            .is_none_or(|value| !value.eq_ignore_ascii_case("JianyingPro.exe"))
-    {
-        return Err("检测到的剪映程序无效。".into());
+        .map_err(|_| format!("{}安装位置已经失效，请重新检测后重试。", editor.name))?;
+    if !executable.is_file() {
+        return Err(format!("检测到的{}程序无效。", editor.name));
     }
-    for path in paths {
-        Command::new(&executable)
-            .arg(editor_import_argument(path))
+    let media_paths = &paths[..asset_count.min(paths.len())];
+    if media_paths.is_empty() {
+        return Err(format!("没有可导入{}的媒体文件。", editor.name));
+    }
+    if editor.id == "concat" || editor.integration == "file-dialog" {
+        return import_via_windows_editor_dialog(editor, media_paths, asset_count);
+    }
+    for path in media_paths {
+        let mut command = Command::new(&executable);
+        if editor.id == "jianying-pro" || editor.integration == "open-file" {
+            command.arg(editor_import_argument(path));
+        } else {
+            command.arg(path);
+        }
+        command
             .spawn()
-            .map_err(|error| format!("无法将素材交给剪映：{error}"))?;
+            .map_err(|error| format!("无法将素材导入{}：{error}", editor.name))?;
     }
     Ok(EditorImportResult {
         editor_name: editor.name.clone(),
-        imported_count: paths.len(),
+        imported_count: asset_count.min(paths.len()),
+        supporting_count: paths.len().saturating_sub(asset_count),
     })
 }
 
@@ -4974,14 +5216,49 @@ fn import_media_to_editor(
     let editor = discover_video_editors()
         .into_iter()
         .find(|editor| editor.id == editor_id)
-        .ok_or("没有检测到可用的剪映专业版。")?;
+        .ok_or("没有检测到可用的剪辑软件。")?;
     let downloads_dir = current_downloads_dir(&state)?;
     let connection = state
         .db
         .lock()
         .map_err(|_| "数据库锁不可用。".to_string())?;
     let path = asset_path(&connection, &downloads_dir, &asset_type, asset_id)?;
-    launch_editor_import(&editor, &[path])
+    launch_editor_import(&editor, &[path], 1)
+}
+
+#[tauri::command]
+fn import_selected_media_to_editor(
+    editor_id: String,
+    assets: Vec<EditorAssetRef>,
+    state: State<'_, AppState>,
+) -> Result<EditorImportResult, String> {
+    if assets.is_empty() {
+        return Err("请先选择要导入的素材。".into());
+    }
+    if assets.len() > 100 {
+        return Err("单次最多导入 100 个素材，请分批处理。".into());
+    }
+    let editor = discover_video_editors()
+        .into_iter()
+        .find(|editor| editor.id == editor_id)
+        .ok_or("没有检测到已选择的剪辑软件。")?;
+    let downloads_dir = current_downloads_dir(&state)?;
+    let connection = state
+        .db
+        .lock()
+        .map_err(|_| "数据库锁不可用。".to_string())?;
+    let paths = assets
+        .iter()
+        .map(|asset| {
+            asset_path(
+                &connection,
+                &downloads_dir,
+                &asset.asset_type,
+                asset.asset_id,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    launch_editor_import(&editor, &paths, paths.len())
 }
 
 #[tauri::command]
@@ -4993,7 +5270,7 @@ fn import_asset_package_to_editor(
     let editor = discover_video_editors()
         .into_iter()
         .find(|editor| editor.id == editor_id)
-        .ok_or("没有检测到可用的剪映专业版。")?;
+        .ok_or("没有检测到可用的剪辑软件。")?;
     let downloads_dir = current_downloads_dir(&state)?;
     let connection = state
         .db
@@ -5012,6 +5289,7 @@ fn import_asset_package_to_editor(
             paths.push(path);
         }
     }
+    let asset_count = paths.len();
     if let Some(cover) = cover_sidecar_path(&original) {
         paths.push(cover);
     }
@@ -5024,7 +5302,7 @@ fn import_asset_package_to_editor(
     }
     let mut seen = HashSet::new();
     paths.retain(|path| seen.insert(path.to_string_lossy().to_ascii_lowercase()));
-    launch_editor_import(&editor, &paths)
+    launch_editor_import(&editor, &paths, asset_count)
 }
 
 #[tauri::command]
@@ -6333,8 +6611,7 @@ async fn download_inbox_item(
     if !component.is_file() {
         return Err("请先在“设置”安装下载引擎。".into());
     }
-    if !components_dir.join("ffmpeg.exe").is_file()
-        || !components_dir.join("ffprobe.exe").is_file()
+    if !components_dir.join("ffmpeg.exe").is_file() || !components_dir.join("ffprobe.exe").is_file()
     {
         return Err("下载、合并和完整性校验需要视频处理工具，请先在“设置”安装或修复。".into());
     }
@@ -6794,15 +7071,21 @@ fn bridge_status(state: State<'_, AppState>) -> BridgeStatus {
         .as_ref()
         .map(|path| path.with_file_name("clipcargo-native-host.exe").is_file())
         .unwrap_or(false);
-    let manifest_path = Some(state.app_data_dir.join("native-messaging/net.clipcargo.native.json"));
+    let manifest_path = Some(
+        state
+            .app_data_dir
+            .join("native-messaging/net.clipcargo.native.json"),
+    );
     let registered_extension_ids = manifest_path
         .as_ref()
         .map(extension_ids_from_manifest)
         .unwrap_or_default();
     let registered = host_installed
-        && TRUSTED_EXTENSION_IDS
-            .iter()
-            .all(|extension_id| registered_extension_ids.iter().any(|registered| registered == extension_id))
+        && TRUSTED_EXTENSION_IDS.iter().all(|extension_id| {
+            registered_extension_ids
+                .iter()
+                .any(|registered| registered == extension_id)
+        })
         && manifest_path
             .as_ref()
             .is_some_and(registry_points_to_manifest);
@@ -6859,14 +7142,177 @@ fn app_info(state: State<'_, AppState>) -> AppInfo {
     }
 }
 
+fn normalized_version(value: &str) -> String {
+    value
+        .trim()
+        .trim_start_matches(['v', 'V'])
+        .split_once('-')
+        .map(|(version, _)| version)
+        .unwrap_or(value.trim().trim_start_matches(['v', 'V']))
+        .to_owned()
+}
+
+fn version_parts(value: &str) -> Option<(u64, u64, u64)> {
+    let parts = normalized_version(value)
+        .split('.')
+        .take(3)
+        .map(str::parse::<u64>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    Some((
+        parts.first().copied().unwrap_or(0),
+        parts.get(1).copied().unwrap_or(0),
+        parts.get(2).copied().unwrap_or(0),
+    ))
+}
+
+fn update_status(
+    status: &str,
+    current_version: &str,
+    latest_version: Option<String>,
+    release_url: Option<String>,
+    download_url: Option<String>,
+    message: &str,
+) -> AppUpdateStatus {
+    AppUpdateStatus {
+        status: status.to_owned(),
+        current_version: current_version.to_owned(),
+        latest_version,
+        release_url,
+        download_url,
+        checked_at: unix_seconds().max(0) as u64,
+        message: Some(message.to_owned()),
+    }
+}
+
+#[tauri::command]
+async fn check_app_update() -> Result<AppUpdateStatus, String> {
+    const RELEASES_URL: &str = "https://api.github.com/repos/Imoot-TT/ClipCargo/releases/latest";
+    let current_version = env!("CARGO_PKG_VERSION").to_owned();
+    let client = reqwest::Client::builder()
+        .user_agent(format!("ClipCargo/{current_version}"))
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|error| format!("无法准备更新检查：{error}"))?;
+    let response = match client.get(RELEASES_URL).send().await {
+        Ok(response) => response,
+        Err(error) => {
+            return Ok(update_status(
+                "failed",
+                &current_version,
+                None,
+                None,
+                None,
+                &format!("无法连接 GitHub 更新服务：{error}"),
+            ));
+        }
+    };
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(update_status(
+            "unpublished",
+            &current_version,
+            None,
+            None,
+            None,
+            "暂无公开版本",
+        ));
+    }
+    if !response.status().is_success() {
+        return Ok(update_status(
+            "failed",
+            &current_version,
+            None,
+            None,
+            None,
+            "GitHub 更新服务暂时不可用，请稍后重试",
+        ));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("读取更新信息失败：{error}"))?;
+    let release: serde_json::Value =
+        serde_json::from_str(&body).map_err(|error| format!("解析更新信息失败：{error}"))?;
+    let Some(tag) = release.get("tag_name").and_then(|value| value.as_str()) else {
+        return Ok(update_status(
+            "unpublished",
+            &current_version,
+            None,
+            None,
+            None,
+            "暂无可识别的公开版本",
+        ));
+    };
+    let latest_version = normalized_version(tag);
+    let release_url = release
+        .get("html_url")
+        .and_then(|value| value.as_str())
+        .map(str::to_owned);
+    let download_url = release
+        .get("assets")
+        .and_then(|value| value.as_array())
+        .and_then(|assets| {
+            assets.iter().find_map(|asset| {
+                let name = asset.get("name")?.as_str()?;
+                (name.to_ascii_lowercase().ends_with(".exe"))
+                    .then(|| {
+                        asset
+                            .get("browser_download_url")?
+                            .as_str()
+                            .map(str::to_owned)
+                    })
+                    .flatten()
+            })
+        });
+    let status = match (
+        version_parts(&current_version),
+        version_parts(&latest_version),
+    ) {
+        (Some(current), Some(latest)) if latest > current => "available",
+        (Some(_), Some(_)) => "current",
+        _ => "failed",
+    };
+    let message = match status {
+        "available" => "发现新版本",
+        "current" => "已是最新版本",
+        _ => "版本号无法比较，请打开发布页确认",
+    };
+    Ok(update_status(
+        status,
+        &current_version,
+        Some(latest_version),
+        release_url,
+        download_url,
+        message,
+    ))
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let parsed = Url::parse(url.trim()).map_err(|_| "发布地址无效。".to_string())?;
+    if parsed.scheme() != "https"
+        || !matches!(
+            parsed.host_str(),
+            Some("github.com") | Some("www.github.com")
+        )
+    {
+        return Err("只允许打开 GitHub 发布地址。".into());
+    }
+    Command::new("rundll32.exe")
+        .args(["url.dll,FileProtocolHandler", parsed.as_str()])
+        .spawn()
+        .map_err(|error| format!("无法打开发布地址：{error}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn component_status(state: State<'_, AppState>) -> ComponentStatus {
     let downloads_dir = current_downloads_dir(&state).unwrap_or_default();
     let components_dir = current_components_dir(&state).unwrap_or_default();
     let yt_dlp_path = components_dir.join("yt-dlp.exe");
     let yt_dlp_ready = yt_dlp_path.is_file();
-    let ffmpeg_ready = components_dir.join("ffmpeg.exe").is_file()
-        && components_dir.join("ffprobe.exe").is_file();
+    let ffmpeg_ready =
+        components_dir.join("ffmpeg.exe").is_file() && components_dir.join("ffprobe.exe").is_file();
     let deno_path = components_dir.join("deno.exe");
     let deno_ready = deno_path.is_file();
     let managed_bytes = |kind: &str| {
@@ -7409,11 +7855,7 @@ async fn install_yt_dlp_into_controlled(
 #[tauri::command]
 async fn install_deno(state: State<'_, AppState>) -> Result<ComponentInstallResult, String> {
     let components_dir = current_components_dir(&state)?;
-    ensure_free_space(
-        &components_dir,
-        160 * 1_048_576,
-        "安装 JavaScript 运行时",
-    )?;
+    ensure_free_space(&components_dir, 160 * 1_048_576, "安装 JavaScript 运行时")?;
     state
         .component_installing
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -7805,7 +8247,18 @@ fn read_configured_components_dir(app_data: &PathBuf) -> PathBuf {
 
 fn application_paths(
     app: &tauri::App,
-) -> Result<(PathBuf, PathBuf, PathBuf, PathBuf, PathBuf, PathBuf, PathBuf), String> {
+) -> Result<
+    (
+        PathBuf,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+        PathBuf,
+    ),
+    String,
+> {
     let app_data = app
         .path()
         .app_local_data_dir()
@@ -7922,8 +8375,7 @@ fn main() {
                 downloads_dir,
                 downloads_config_path,
                 components_config_path,
-            ) =
-                application_paths(app)?;
+            ) = application_paths(app)?;
             let database_existed = database_path
                 .metadata()
                 .map(|metadata| metadata.is_file() && metadata.len() > 0)
@@ -8064,6 +8516,8 @@ fn main() {
             open_source_page,
             bridge_status,
             app_info,
+            check_app_update,
+            open_external_url,
             component_status,
             component_install_status,
             install_yt_dlp,
@@ -8089,6 +8543,7 @@ fn main() {
             reveal_media,
             list_video_editors,
             import_media_to_editor,
+            import_selected_media_to_editor,
             import_asset_package_to_editor,
             open_asset_package,
             open_components_directory,
@@ -8162,11 +8617,27 @@ mod tests {
 
     #[test]
     fn accepts_provider_session_cookies_only_for_the_matching_source() {
-        assert!(auth_cookie_matches("SID", ".google.com", Some("www.youtube.com")));
-        assert!(!auth_cookie_matches("PREF", ".google.com", Some("www.youtube.com")));
+        assert!(auth_cookie_matches(
+            "SID",
+            ".google.com",
+            Some("www.youtube.com")
+        ));
+        assert!(!auth_cookie_matches(
+            "PREF",
+            ".google.com",
+            Some("www.youtube.com")
+        ));
         assert!(auth_cookie_matches("auth_token", ".x.com", Some("x.com")));
-        assert!(!auth_cookie_matches("auth_token", ".x.com", Some("www.youtube.com")));
-        assert!(auth_cookie_matches("SESSDATA", ".bilibili.com", Some("www.bilibili.com")));
+        assert!(!auth_cookie_matches(
+            "auth_token",
+            ".x.com",
+            Some("www.youtube.com")
+        ));
+        assert!(auth_cookie_matches(
+            "SESSDATA",
+            ".bilibili.com",
+            Some("www.bilibili.com")
+        ));
     }
 
     #[test]
@@ -8254,10 +8725,8 @@ mod tests {
 
     #[test]
     fn reads_the_embedded_extension_package_version() {
-        let root = std::env::temp_dir().join(format!(
-            "clipcargo-extension-version-{}",
-            new_request_id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("clipcargo-extension-version-{}", new_request_id()));
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("manifest.json"), r#"{"version":"0.1.6"}"#).unwrap();
         assert_eq!(extension_package_version(&root).as_deref(), Some("0.1.6"));

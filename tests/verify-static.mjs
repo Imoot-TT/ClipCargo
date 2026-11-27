@@ -68,7 +68,7 @@ for (const relinkModeMarker of ['data-relink-reference', 'externalReference', '�
 for (const relinkPickerMarker of ['openNativeFileDialog', 'chooseMediaFiles(false)', "invoke('relink_media'", '拖入文件定位', 'tauri_plugin_dialog::init()']) {
   if (!`${app}\n${rust}`.includes(relinkPickerMarker)) throw new Error(`Missing-media relink picker is incomplete: ${relinkPickerMarker}`);
 }
-for (const menuLabel of ['aria-label="拖入文件定位"', 'aria-label="编辑信息"', 'aria-label="打开文件位置"', 'aria-label="复制文件路径"', 'aria-label="从素材库移除"']) {
+for (const menuLabel of ['aria-label="拖入文件定位"', 'aria-label="编辑信息"', 'aria-label="打开文件位置"', 'aria-label="复制文件路径"', 'aria-label="从素材库移出"']) {
   if (!app.includes(menuLabel)) throw new Error(`Library overflow action is missing an accessible name: ${menuLabel}`);
 }
 for (const detailMarker of ['data-inbox-detail', 'inbox-detail-backdrop', 'originalTitle', 'resolvedAt', 'update_inbox_details', 'display_title']) {
@@ -184,7 +184,7 @@ for (const bridgeMarker of ['EMBEDDED_EXTENSION_FILES', 'DEVELOPMENT_EXTENSION_I
 for (const bridgeStatusMarker of ['struct BridgeStatus', 'extension_ids_from_manifest', 'registry_points_to_manifest', 'extension_verified', 'extension_active', '.extension-status', 'debug_build']) {
   if (!rust.includes(bridgeStatusMarker)) throw new Error(`Browser bridge status is incomplete: ${bridgeStatusMarker}`);
 }
-for (const bridgeUiMarker of ["isStoreExtension", '开发测试版', '打开本地扩展文件', '检测连接', 'Chrome Web Store', '打开 Chrome 商店', 'extensionTestDetails']) {
+for (const bridgeUiMarker of ["isStoreExtension", '开发测试版', '打开本地扩展文件', '检查浏览器连接', 'Chrome Web Store', '打开 Chrome 商店', 'extensionTestDetails']) {
   if (!app.includes(bridgeUiMarker)) throw new Error(`Browser bridge status UI is incomplete: ${bridgeUiMarker}`);
 }
 for (const bridgeInteractionMarker of ['bridgeChecking', 'aria-busy="true"', 'setTimeout(resolve, 2000)']) {
@@ -276,8 +276,8 @@ for (const organizedPackageMarker of ['fn asset_package_directory', 'fn asset_ro
 for (const projectLibraryMarker of ['素材项目', '全部素材', 'data-open-library-project', 'data-open-asset-package', 'imageCount', 'subtitleCount']) {
   if (!`${app}\n${rust}`.includes(projectLibraryMarker)) throw new Error(`Project-oriented media library is incomplete: ${projectLibraryMarker}`);
 }
-for (const editorMarker of ['fn discover_video_editors', 'JianyingPro.exe', 'verified: false', 'fn launch_editor_import', '尚未通过素材导入验证', 'import_media_to_editor', 'import_asset_package_to_editor', 'data-import-package-editor', '交给剪映']) {
-  if (!`${app}\n${rust}`.includes(editorMarker)) throw new Error(`Jianying editor handoff is incomplete: ${editorMarker}`);
+for (const editorMarker of ['fn discover_video_editors', 'JianyingPro.exe', 'CapCut.exe', 'integration: "open-file"', 'integration: "file-argument"', 'integration: "file-dialog"', 'WINDOWS_EDITOR_IMPORT_SCRIPT', 'fn launch_editor_import', 'check_app_update', 'import_media_to_editor', 'import_selected_media_to_editor', 'import_asset_package_to_editor', 'setting-editor-target', 'data-select-library', '导入剪辑']) {
+  if (!`${app}\n${rust}`.includes(editorMarker)) throw new Error(`Editor handoff or update self-check is incomplete: ${editorMarker}`);
 }
 if (!app.includes("downloadQuality.closest('.custom-select') || downloadQuality")) throw new Error('Dynamic preset changes can expose the hidden native quality select');
 for (const warningMarker of ['warning_message', 'warningMessage', 'has_cover_sidecar', '来源没有提供封面，主文件已正常下载', '来源没有可保存的所选字幕']) {
@@ -339,7 +339,7 @@ if (app.includes("setInterval(() => { if (state.view === 'inbox' || state.view =
 for (const marker of ['struct MediaRemovalImpact', 'fn media_removal_impact', 'reference_count', 'size_bytes', 'SELECT COUNT(*) FROM media_derivatives']) {
   if (!rust.includes(marker)) throw new Error(`Media removal impact preflight is incomplete: ${marker}`);
 }
-for (const marker of ["invoke('media_removal_impact'", 'pendingLibraryImpact', '条素材记录引用', '所有引用该文件的记录显示缺失']) {
+for (const marker of ["invoke('media_removal_impact'", 'pendingLibraryImpact', '条素材记录引用', '条素材记录都变为缺失']) {
   if (!app.includes(marker)) throw new Error(`Media removal impact UI is incomplete: ${marker}`);
 }
 for (const marker of ['waiting_component INTEGER NOT NULL DEFAULT 0', "waiting_component: '等待安装'", '需要下载引擎才能识别；链接已保留', '安装下载引擎', 'data-view="browser"']) {

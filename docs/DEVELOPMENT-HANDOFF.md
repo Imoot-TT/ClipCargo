@@ -1,11 +1,11 @@
 # ClipCargo 开发交接
 
-记录时间：2026-11-26。本文供后续开发对话接续使用，不代表所有问题已解决。
+记录时间：2026-11-27。本文供后续开发对话接续使用，不代表所有问题已解决。
 
 ## 项目与发布
 
 - 项目目录：`D:\GPTDocument\项目\CodingPro\VidoGo\ClipCargo`。ClipCargo 是独立产品；Basic、Quick、VidoGo 仅供参考，不属于同一产品。
-- GitHub：<https://github.com/Imoot-TT/ClipCargo>；当前 `main` 和 `v0.1.6` 均指向 `8fb2503`。
+- GitHub：<https://github.com/Imoot-TT/ClipCargo>；`v0.1.6` 是上一版正式发布，当前工作版本为 `0.1.7`。
 - 正式发布：<https://github.com/Imoot-TT/ClipCargo/releases/tag/v0.1.6>。
 - 安装包：`ClipCargo_0.1.6_x64-setup.exe`，SHA-256：`7CFBD2F81426B9AA8EF27CFBAB7E4C933527B6289CE6A72FD923DAB4771ABA0E`。
 - 技术栈：Tauri、Rust、原生 JavaScript/CSS；浏览器扩展另位于 `extension/`。Chrome 商店扩展已由用户上架，桌面端说明不应再将商店扩展称作本地测试版。
@@ -14,6 +14,7 @@
 
 - `91c1c36`：调整启动流程、设置页检测和后台工具窗口处理。设置页组件版本读取本地清单，避免仅为展示版本而启动 yt-dlp、FFmpeg、Deno；媒体工具调用增加 Windows 隐藏控制台标志。启动窗口先隐藏，前端首帧准备后显示；桥接注册移到后台。
 - `8fb2503`：安装和卸载程序配置 `icons/icon.ico`，版本更新为 0.1.6。已从生成的安装包提取并目视确认 ClipCargo 图标，已推送并发布正式版。
+- `v0.1.7`：统一左侧导航和设置布局；减少重复微文案；增加历史清除、素材多选和批量导入；区分从素材库移出与删除文件；修复深色标题栏；增加版本自检；移除 ClipCargo 对 Concat MCP 自动化接口的依赖，改用各编辑器自己的本地导入方式。详见 [更新记录](CHANGELOG.md)。
 - `npm run check:source` 通过；此前 Rust 测试 66 项通过、4 项跳过，另有 3 项通过。0.1.6 安装包构建成功。
 - 独立构建目录 `src-tauri/target-startup-verify/` 未被 Git 跟踪，包含生成的安装包和构建产物；不要误提交或未经确认清理。
 
