@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-11-26T03:40:46.618Z",
+  "generatedAt": "2026-11-27T04:05:08.686Z",
   "cargoLock": "src-tauri/Cargo.lock",
   "npmLock": "package-lock.json",
   "summary": {
-    "packages": 477,
-    "cargoPackages": 462,
+    "packages": 481,
+    "cargoPackages": 466,
     "npmPackages": 15,
-    "uniqueLicenseTexts": 262,
+    "uniqueLicenseTexts": 263,
     "missingLicenseMetadata": 0,
     "packagesWithoutLocalLicenseText": 49
   },
@@ -1092,6 +1092,25 @@
         },
         {
           "path": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/core-foundation-0.10.1/LICENSE-MIT",
+          "sha256": "62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3"
+        }
+      ]
+    },
+    {
+      "ecosystem": "cargo",
+      "name": "core-foundation",
+      "version": "0.9.4",
+      "license": "MIT OR Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/servo/core-foundation-rs",
+      "manifestPath": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/core-foundation-0.9.4/Cargo.toml",
+      "licenseFiles": [
+        {
+          "path": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/core-foundation-0.9.4/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/core-foundation-0.9.4/LICENSE-MIT",
           "sha256": "62065228e42caebca7e7d7db1204cbb867033de5982ca4009928915e4095f3a3"
         }
       ]
@@ -5874,6 +5893,44 @@
     },
     {
       "ecosystem": "cargo",
+      "name": "system-configuration",
+      "version": "0.7.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/mullvad/system-configuration-rs",
+      "manifestPath": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/system-configuration-0.7.0/Cargo.toml",
+      "licenseFiles": [
+        {
+          "path": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/system-configuration-0.7.0/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/system-configuration-0.7.0/LICENSE-MIT",
+          "sha256": "000cbb5bea6f21829c8f0d9e1fe87410bd5ef0453412ffc017845982a3e19824"
+        }
+      ]
+    },
+    {
+      "ecosystem": "cargo",
+      "name": "system-configuration-sys",
+      "version": "0.6.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/mullvad/system-configuration-rs",
+      "manifestPath": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/system-configuration-sys-0.6.0/Cargo.toml",
+      "licenseFiles": [
+        {
+          "path": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/system-configuration-sys-0.6.0/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/system-configuration-sys-0.6.0/LICENSE-MIT",
+          "sha256": "000cbb5bea6f21829c8f0d9e1fe87410bd5ef0453412ffc017845982a3e19824"
+        }
+      ]
+    },
+    {
+      "ecosystem": "cargo",
       "name": "system-deps",
       "version": "6.2.2",
       "license": "MIT OR Apache-2.0",
@@ -7799,6 +7856,25 @@
         },
         {
           "path": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/windows-numerics-0.3.1/license-mit",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+        }
+      ]
+    },
+    {
+      "ecosystem": "cargo",
+      "name": "windows-registry",
+      "version": "0.6.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "repository": "https://github.com/microsoft/windows-rs",
+      "manifestPath": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/windows-registry-0.6.1/Cargo.toml",
+      "licenseFiles": [
+        {
+          "path": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/windows-registry-0.6.1/license-apache-2.0",
+          "sha256": "c16f8dcf1a368b83be78d826ea23de4079fe1b4469a0ab9ee20563f37ff3d44b"
+        },
+        {
+          "path": "C:/Users/moote/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/windows-registry-0.6.1/license-mit",
           "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
         }
       ]

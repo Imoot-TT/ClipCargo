@@ -91,14 +91,17 @@ window.__TAURI__ = {
       }
       if (command === 'list_media_derivatives') return clone(harnessState.derivatives);
       if (command === 'list_projects') return clone(harnessState.projects);
-      if (command === 'list_video_editors') return new URLSearchParams(location.search).has('no-editor') ? [] : [{ id: 'jianying-pro', name: '剪映专业版', verified: true }];
+      if (command === 'list_video_editors') return new URLSearchParams(location.search).has('no-editor') ? [] : [{ id: 'jianying-pro', name: '剪映专业版', verified: true, ready: true, integration: 'open-file' }];
       if (command === 'import_media_to_editor') return { editorName: '剪映专业版', importedCount: 1 };
-      if (command === 'import_asset_package_to_editor') return { editorName: '剪映专业版', importedCount: 4 };
+      if (command === 'import_selected_media_to_editor') return { editorName: '剪映专业版', importedCount: args?.assets?.length || 0 };
+      if (command === 'import_asset_package_to_editor') return { editorName: '剪映专业版', importedCount: 2 };
       if (command === 'bridge_status') {
         if (harnessSlowBridge) await new Promise((resolve) => setTimeout(resolve, 700));
         return { hostName: 'net.clipcargo.native', queuePath: 'ClipCargo 队列', protocolVersion: 1, hostInstalled: harnessBridgeHostInstalled, registered: harnessBridgeRegistered, extensionId: harnessBridgeRegistered ? (harnessStoreExtension ? 'maenmnckhgckmkcaijmpeghkcfhchiha' : 'dpogajmenckmdbpacaoilnhhdcjpbheb') : null, extensionVerified: harnessExtensionVerified, extensionActive: harnessExtensionActive, extensionVersion: harnessExtensionVerified ? (harnessStoreExtension ? '0.1.6' : '0.1.0') : null, extensionPackageVersion: '0.1.0', debugBuild: !harnessStoreExtension, lastSeenAt: harnessExtensionVerified ? 1794210400 : null };
       }
-      if (command === 'app_info') return { applicationVersion: '0.1.6', extensionVersion: '0.1.0', bridgeProtocolVersion: 1, checkedAt: 1794210400 };
+      if (command === 'app_info') return { applicationVersion: '0.1.7', extensionVersion: '0.1.0', bridgeProtocolVersion: 1, checkedAt: 1794210400 };
+      if (command === 'check_app_update') return { status: 'current', currentVersion: '0.1.7', latestVersion: '0.1.7', checkedAt: 1794210400, message: '已是最新版本' };
+      if (command === 'open_external_url') return true;
       if (command === 'component_status') {
         const ytDlpBytes = harnessYtDlpReady ? 18_874_368 : 0;
         const ffmpegBytes = harnessFfmpegReady ? 188_743_680 : 0;

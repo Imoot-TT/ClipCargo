@@ -1000,6 +1000,61 @@ input[type="radio"] {
   .settings-row { grid-template-columns: minmax(0, 1fr) minmax(120px, 42%); gap: 10px; }
 }
 
+/* Interaction clarity pass: preserve a comfortable action target while keeping the rail fixed left. */
+.selection-bar { min-height: 50px; padding: 8px 12px 8px 15px; }
+.selection-actions { gap: 8px; }
+.selection-actions .button { min-height: 34px; height: 34px; padding-inline: 11px; }
+.selection-actions .selection-move { border-color: color-mix(in srgb, var(--accent) 42%, var(--border)); background: var(--accent-soft); color: var(--text); }
+.selection-actions .selection-move:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+.task-toolbar { align-items: center; }
+.task-toolbar-actions { min-width: 0; display: flex; justify-content: flex-end; }
+.history-clear-confirm { min-height: 34px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.history-clear-confirm span { margin-right: 3px; }
+.task-row strong { max-width: 100%; }
+.task-row .task-meta { display: flex; align-items: center; gap: 7px; min-width: 0; margin-top: 2px; color: var(--muted); }
+.task-meta > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-meta-more { flex: 0 0 auto; color: var(--text-secondary); font-size: 10px; opacity: .72; }
+.task-meta[data-tooltip] { cursor: help; }
+.extension-card { position: relative; transition: border-color .18s ease, box-shadow .18s ease; }
+.extension-card.is-checking { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent); }
+.connection-check-button[aria-busy="true"] .ui-icon,
+.version-update [aria-busy="true"] .ui-icon { animation: clipcargo-spin .8s linear infinite; }
+.version-update { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.version-update-status { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.version-update-status[data-tooltip] { cursor: help; }
+.version-update small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Explicit themes keep the WebView and the native Windows title bar in the same mode. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #17181b; --sidebar: #1d1e22; --surface: #23252a; --surface-hover: #2b2d33;
+  --text: #f2f3f5; --muted: #a8acb5; --border: #353840; --accent-soft: #30344d;
+  --success-soft: #213b31; --warning-soft: #44341f;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #fafbfe; --sidebar: #f4f5f9; --surface: #fff; --surface-hover: #f5f6fa;
+  --text: #1b1e27; --muted: #69707d; --border: #e5e7ed; --accent-soft: #eff1ff;
+  --success-soft: #e8f6ef; --warning-soft: #fff3df;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    --bg: #17181b; --sidebar: #1d1e22; --surface: #23252a; --surface-hover: #2b2d33;
+    --text: #f2f3f5; --muted: #a8acb5; --border: #353840; --accent-soft: #30344d;
+    --success-soft: #213b31; --warning-soft: #44341f;
+  }
+}
+
+.media-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.media-card { position: relative; padding: 7px; }
+.media-card.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent), var(--shadow); }
+.media-select { position: absolute; z-index: 2; top: 10px; left: 10px; width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(4px); cursor: pointer; }
+.media-select input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
+.media-thumb { height: 108px; margin-bottom: 7px; }
+.library-selection-bar { min-height: 40px; margin: -3px 0 10px; padding: 6px 8px 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 8px; background: var(--accent-soft); }
+.library-selection-bar label { display: inline-flex; align-items: center; gap: 7px; color: var(--text); font-size: 11px; }
+.library-selection-bar .selection-actions { display: flex; align-items: center; }
+
 /* Navigation contract: the desktop app keeps its navigation rail on the left.
    The shell has a 780px minimum width, so changing the rail into a top or bottom
    bar only adds a second mental model without solving a supported use case. */

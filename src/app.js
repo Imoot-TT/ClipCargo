@@ -1,5 +1,6 @@
 const invoke = window.ClipCargoTauri?.invoke;
 const openNativeFileDialog = window.ClipCargoTauri?.openNativeFileDialog;
+const setWindowTheme = window.ClipCargoTauri?.setWindowTheme;
 const mediaFileFilters = [{
   name: '媒体文件',
   extensions: ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'avi', 'mp3', 'm4a', 'wav', 'flac'],
@@ -124,6 +125,7 @@ const dropOverlay = document.querySelector('#drop-overlay');
 let activeDownloadItemIds = [];
 let activeInboxDetailId = null;
 const selectedInboxItems = new Set();
+const selectedLibraryAssets = new Set();
 const persistedTaskErrorCodes = new Map();
 let activeMediaEdit = null;
 let pendingLocalImportPaths = [];
@@ -154,12 +156,17 @@ function savePreferences() {
   localStorage.setItem('clipcargo:preferences', JSON.stringify(preferences));
   document.documentElement.dataset.theme = preferences.theme;
   document.documentElement.style.colorScheme = preferences.theme === 'system' ? 'light dark' : preferences.theme;
+  void setWindowTheme?.(preferences.theme === 'system' ? null : preferences.theme);
 }
 savePreferences();
 
 const savedView = localStorage.getItem('clipcargo:last-view');
 const savedSettingsSection = localStorage.getItem('clipcargo:settings-section');
-const state = { view: ['inbox', 'tasks', 'library', 'browser'].includes(savedView) ? savedView : 'inbox', settingsSection: ['general', 'download', 'extension', 'tools', 'shortcuts', 'version', 'about'].includes(savedSettingsSection) ? savedSettingsSection : 'general', items: [], jobs: [], derivatives: [], projects: [{ name: '未分类', isSystem: true, itemCount: 0 }], filter: 'all', projectFilter: 'all', inboxPage: 1, taskFilter: 'active', taskPage: 1, libraryView: 'projects', librarySourceJob: null, libraryQuery: '', librarySort: 'newest', libraryProject: 'all', libraryKind: 'all', libraryPage: 1, editor: null, bridge: null, components: null, appInfo: null, authConfigured: false, authBrowser: null, authBrowsers: [], authBrowserChoice: null, authLoginOpen: false, authLoginError: '', authRetryJobId: null, bridgeChecking: false, loading: true, editingProject: null, pendingProjectDelete: null, pendingLibraryRemoval: null, pendingLibraryImpact: null, pendingInboxRemoval: null, pendingBatchRemoval: false, pendingComponentRemoval: null, relinkTarget: null };
+const savedEditorTarget = localStorage.getItem('clipcargo:editor-target') || 'auto';
+const taskHistoryClearedBeforeKey = 'clipcargo:task-history-cleared-before';
+let taskHistoryClearedBefore = Number(localStorage.getItem(taskHistoryClearedBeforeKey) || 0);
+if (!Number.isFinite(taskHistoryClearedBefore) || taskHistoryClearedBefore < 0) taskHistoryClearedBefore = 0;
+const state = { view: ['inbox', 'tasks', 'library', 'browser'].includes(savedView) ? savedView : 'inbox', settingsSection: ['general', 'download', 'extension', 'tools', 'shortcuts', 'version', 'about'].includes(savedSettingsSection) ? savedSettingsSection : 'general', items: [], jobs: [], derivatives: [], projects: [{ name: '未分类', isSystem: true, itemCount: 0 }], filter: 'all', projectFilter: 'all', inboxPage: 1, taskFilter: 'active', taskPage: 1, libraryView: 'projects', librarySourceJob: null, libraryQuery: '', librarySort: 'newest', libraryProject: 'all', libraryKind: 'all', libraryPage: 1, editor: null, editors: [], editorTarget: savedEditorTarget, bridge: null, components: null, appInfo: null, updateCheck: null, updateChecking: false, authConfigured: false, authBrowser: null, authBrowsers: [], authBrowserChoice: null, authLoginOpen: false, authLoginError: '', authRetryJobId: null, bridgeChecking: false, loading: true, editingProject: null, pendingProjectDelete: null, pendingLibraryRemoval: null, pendingLibraryImpact: null, pendingInboxRemoval: null, pendingBatchRemoval: false, pendingHistoryClear: false, pendingComponentRemoval: null, relinkTarget: null };
 let toastTimer;
 let librarySearchTimer;
 let projectActiveIndex = -1;
@@ -422,7 +429,7 @@ function enhanceSelects(root = document) {
 
 function pagination(scope, page, pageCount, total) {
   if (pageCount <= 1) return '';
-  const label = scope === 'inbox' ? '收集箱' : scope === 'tasks' ? '任务' : '素材库';
+  const label = scope === 'inbox' ? '收集' : scope === 'tasks' ? '任务' : '素材库';
   return `<nav class="pagination" aria-label="${label}分页"><button class="button compact" data-page-scope="${scope}" data-page-direction="previous" ${page <= 1 ? 'disabled' : ''}>上一页</button><span>第 ${page} / ${pageCount} 页 · 共 ${total} 项</span><button class="button compact" data-page-scope="${scope}" data-page-direction="next" ${page >= pageCount ? 'disabled' : ''}>下一页</button></nav>`;
 }
 
@@ -661,8 +668,8 @@ function renderInbox() {
     </div>
     <div class="heading-actions"><select id="project-filter" class="field-control compact-select" aria-label="按项目筛选"><option value="all">全部项目</option>${projects.map((project) => `<option value="${escapeHtml(project)}" ${state.projectFilter === project ? 'selected' : ''}>${escapeHtml(project)}</option>`).join('')}</select><button class="button project-button" data-action="manage-projects">${icon('folder')}项目</button><button class="button primary" data-action="open-add">${icon('plus')}添加链接</button></div>
     </div>
-    ${selectedInboxItems.size ? `<div class="selection-bar"><label><input type="checkbox" data-select-visible ${filtered.length && filtered.every((item) => selectedInboxItems.has(item.id)) ? 'checked' : ''} ${filtered.length ? '' : 'disabled'}><span>已选 ${selectedInboxItems.size}${selectedHidden ? `（其中 ${selectedHidden} 项已隐藏）` : ''}</span></label><div class="selection-actions"><button class="button" data-action="resolve-selected" ${selectedResolvable.length ? '' : 'disabled'}>${icon('refresh-cw')}识别 ${selectedResolvable.length || ''}</button><button class="button" data-action="move-selected">${icon('folder')}移动</button><button class="button danger-text" data-action="remove-selected" ${selectedRemovable.length ? '' : 'disabled'}>${icon('trash-2')}${state.pendingBatchRemoval ? `确认移除 ${selectedRemovable.length} 项` : `移除 ${selectedRemovable.length || ''}`}</button><button class="button primary" data-action="download-selected" ${selectedDownloadable.length ? '' : 'disabled'}>${icon('download')}下载 ${selectedDownloadable.length || ''}</button></div></div>` : ''}
-    ${state.loading ? '<div class="empty-state"><div>正在读取收集箱…</div></div>' : filtered.length ? `
+    ${selectedInboxItems.size ? `<div class="selection-bar"><label><input type="checkbox" data-select-visible ${filtered.length && filtered.every((item) => selectedInboxItems.has(item.id)) ? 'checked' : ''} ${filtered.length ? '' : 'disabled'}><span>已选 ${selectedInboxItems.size}${selectedHidden ? `（其中 ${selectedHidden} 项已隐藏）` : ''}</span></label><div class="selection-actions"><button class="button" data-action="resolve-selected" ${selectedResolvable.length ? '' : 'disabled'}>${icon('refresh-cw')}识别 ${selectedResolvable.length || ''}</button><button class="button selection-move" data-action="move-selected">${icon('folder')}移动到…</button><button class="button danger-text" data-action="remove-selected" ${selectedRemovable.length ? '' : 'disabled'}>${icon('trash-2')}${state.pendingBatchRemoval ? `确认从收集中移除 ${selectedRemovable.length} 项` : `从收集中移除 ${selectedRemovable.length || ''}`}</button><button class="button primary" data-action="download-selected" ${selectedDownloadable.length ? '' : 'disabled'}>${icon('download')}下载 ${selectedDownloadable.length || ''}</button></div></div>` : ''}
+    ${state.loading ? '<div class="empty-state"><div>正在读取收集…</div></div>' : filtered.length ? `
       <div class="inbox-table"><div class="inbox-table-head"><label class="inbox-select" title="选择筛选结果"><input type="checkbox" data-select-visible aria-label="选择筛选结果" ${filtered.length && selectedInboxItems.size && filtered.every((item) => selectedInboxItems.has(item.id)) ? 'checked' : ''}></label><span>标题</span><span>来源</span><span>项目</span><span>时间</span><span>状态</span><span>操作</span></div><div class="inbox-list">${visible.map((item) => {
         const job = jobsByItemId.get(item.id);
         const displayStatus = inboxDisplayStatus(item, job);
@@ -673,7 +680,7 @@ function renderInbox() {
           ? `<button class="button compact" data-resolve="${item.id}">${icon(item.status === 'failed' ? 'refresh-cw' : 'circle-play')}${item.status === 'failed' ? '重试' : '识别'}</button>`
           : item.status === 'ready' && job?.status !== 'queued' && job?.status !== 'downloading' && job?.status !== 'completed'
             ? `<button class="button compact primary" data-download="${item.id}">${icon('download')}${job?.status === 'failed' ? '重试下载' : '下载'}</button>` : '';
-        const secondaryActions = `${item.captureMethod === 'local-import' ? '' : `<button class="menu-action" data-open-source="${item.id}">${icon('external-link')}打开来源</button>`}${item.status === 'ready' && !job ? `<button class="menu-action" data-resolve="${item.id}">${icon('refresh-cw')}重新识别</button>` : ''}${canRemoveInboxItem(item, job) ? `<button class="menu-action danger-text" data-remove="${item.id}">${icon('trash-2')}移除</button>` : ''}`;
+        const secondaryActions = `${item.captureMethod === 'local-import' ? '' : `<button class="menu-action" data-open-source="${item.id}">${icon('external-link')}打开来源</button>`}${item.status === 'ready' && !job ? `<button class="menu-action" data-resolve="${item.id}">${icon('refresh-cw')}重新识别</button>` : ''}${canRemoveInboxItem(item, job) ? `<button class="menu-action danger-text" data-remove="${item.id}">${icon('trash-2')}从收集中移除</button>` : ''}`;
         return `
         <article class="inbox-row">
           <label class="inbox-select" title="选择条目"><input type="checkbox" data-select-item="${item.id}" aria-label="选择 ${escapeHtml(item.title)}" ${selectedInboxItems.has(item.id) ? 'checked' : ''}></label>
@@ -682,7 +689,7 @@ function renderInbox() {
           <div class="inbox-project">${escapeHtml(item.projectName)}</div>
           <time class="inbox-time">${escapeHtml(formatTime(item.createdAt))}</time>
           <div class="inbox-status-cell"><span class="status status-${escapeHtml(displayStatus.status)}">${escapeHtml(displayStatus.label)}</span></div>
-          <div class="item-action">${confirmingRemoval ? `<button class="button compact" data-cancel-inbox-remove>取消</button><button class="button compact danger-text" data-confirm-inbox-remove="${item.id}">${icon('trash-2')}确认移除</button>` : `${primaryAction}${secondaryActions ? `<details class="media-more"><summary class="icon-button" aria-label="更多操作" title="更多操作">${icon('ellipsis')}</summary><div class="media-more-menu">${secondaryActions}</div></details>` : ''}`}</div>
+          <div class="item-action">${confirmingRemoval ? `<button class="button compact" data-cancel-inbox-remove>取消</button><button class="button compact danger-text" data-confirm-inbox-remove="${item.id}">${icon('trash-2')}确认从收集中移除</button>` : `${primaryAction}${secondaryActions ? `<details class="media-more"><summary class="icon-button" aria-label="更多操作" title="更多操作">${icon('ellipsis')}</summary><div class="media-more-menu">${secondaryActions}</div></details>` : ''}`}</div>
         </article>`; }).join('')}</div></div>${pagination('inbox', state.inboxPage, inboxPageCount, filtered.length)}` : `
       <div class="empty-state"><div class="empty-state-inner"><div class="empty-icon">${icon('inbox')}</div><h2>还没有链接</h2><p>粘贴链接，或从浏览器扩展发送。</p><button class="button primary" data-action="open-add">${icon('plus')}添加链接</button></div></div>`}`;
 }
@@ -748,13 +755,26 @@ function taskMatchesFilter(item, filter) {
   return item.status === 'completed' || userCancelled(item);
 }
 
+function taskHistoryEntryVisible(item) {
+  const updatedAt = Number(item.updatedAt || item.createdAt || 0);
+  return !taskHistoryClearedBefore || updatedAt > taskHistoryClearedBefore;
+}
+
+function taskMetadataMarkup(primary, detail) {
+  const safePrimary = escapeHtml(primary);
+  const safeDetail = escapeHtml(detail || primary);
+  return `<div class="item-meta task-meta" data-tooltip="${safeDetail}" aria-label="${safeDetail}"><span>${safePrimary}</span><span class="task-meta-more">详情</span></div>`;
+}
+
 function downloadTaskRow(item) {
   const cancelled = userCancelled(item);
   const failed = isFailedTask(item);
   const displayStatus = cancelled ? 'cancelled' : failed ? 'failed' : item.status;
   const statusText = cancelled ? '已停止' : jobLabel(displayStatus);
   const taskTime = Number.isFinite(item.updatedAt) ? item.updatedAt : item.createdAt;
-  const metadata = `下载 · ${escapeHtml(item.sourceHost)} · ${escapeHtml(outputPresetLabel(item.outputPreset))}${item.outputPreset === 'audio' ? '' : ` · ${escapeHtml(qualityLabel(item.quality))}`}${item.saveSubtitles ? ` · 字幕 ${escapeHtml((item.subtitleLanguages || []).join('、') || '自动')}` : ''}${item.saveCover ? ' · 封面' : ''}${item.retainSource ? ' · 保留原格式' : ''}${item.status === 'queued' ? queuePosition(state.jobs, item.id) : ''}${Number.isFinite(taskTime) ? ` · ${escapeHtml(formatTime(taskTime))}` : ''}`;
+  const primaryMetadata = ['下载', item.sourceHost, outputPresetLabel(item.outputPreset), item.outputPreset === 'audio' ? '' : qualityLabel(item.quality)].filter(Boolean).join(' · ');
+  const detailMetadata = ['下载', item.sourceHost, outputPresetLabel(item.outputPreset), item.outputPreset === 'audio' ? '' : qualityLabel(item.quality), item.saveSubtitles ? `字幕 ${(item.subtitleLanguages || []).join('、') || '自动'}` : '', item.saveCover ? '封面' : '', item.retainSource ? '保留原格式' : '', item.status === 'queued' ? queuePosition(state.jobs, item.id).replace(/^ · /, '') : '', Number.isFinite(taskTime) ? formatTime(taskTime) : ''].filter(Boolean).join(' · ');
+  const metadata = taskMetadataMarkup(primaryMetadata, detailMetadata);
   const progress = !failed && (item.status === 'downloading' || item.status === 'paused') ? `<div class="progress-track" aria-label="下载进度 ${Math.round(item.progressPercent || 0)}%"><span style="width:${Math.max(0, Math.min(100, item.progressPercent || 0))}%"></span></div>${downloadProgressDetail(item)}` : '';
   const recoveryButton = taskRecoveryButton(item);
   const actionButtons = failed
@@ -766,12 +786,12 @@ function downloadTaskRow(item) {
         : item.status === 'paused'
           ? `<button class="button compact primary" data-resume-download="${item.id}">继续</button><button class="button compact danger-text" data-cancel-download="${item.id}">停止</button>`
           : '';
-  return `<article class="task-row"><div><strong>${escapeHtml(item.title)}</strong><div class="item-meta">${metadata}</div>${progress}${taskErrorMarkup(item.errorMessage, 'download', item.errorCode, item)}${item.warningMessage ? `<div class="item-warning">${escapeHtml(item.warningMessage)}</div>` : ''}</div><div class="item-action"><span class="status status-${displayStatus}">${statusText}</span>${actionButtons ? `<div class="task-action-buttons">${actionButtons}</div>` : ''}</div></article>`;
+  return `<article class="task-row"><div><strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong>${metadata}${progress}${taskErrorMarkup(item.errorMessage, 'download', item.errorCode, item)}${item.warningMessage ? `<div class="item-warning">${escapeHtml(item.warningMessage)}</div>` : ''}</div><div class="item-action"><span class="status status-${displayStatus}">${statusText}</span>${actionButtons ? `<div class="task-action-buttons">${actionButtons}</div>` : ''}</div></article>`;
 }
 
 function renderTasks() {
-  const jobs = state.jobs.filter((job) => taskMatchesFilter(job, state.taskFilter));
-  const processing = state.derivatives.filter((item) => item.kind !== 'source' && taskMatchesFilter(item, state.taskFilter));
+  const jobs = state.jobs.filter((job) => taskMatchesFilter(job, state.taskFilter) && (state.taskFilter !== 'history' || taskHistoryEntryVisible(job)));
+  const processing = state.derivatives.filter((item) => item.kind !== 'source' && taskMatchesFilter(item, state.taskFilter) && (state.taskFilter !== 'history' || taskHistoryEntryVisible(item)));
   const entries = [...jobs.map((item) => ({ type: 'download', item })), ...processing.map((item) => ({ type: 'processing', item }))];
   persistedTaskErrorCodes.clear();
   entries.forEach(({ item }) => {
@@ -784,8 +804,10 @@ function renderTasks() {
     if (type === 'download') return downloadTaskRow(item);
     const cancelled = userCancelled(item);
     const taskTime = Number.isFinite(item.updatedAt) ? item.updatedAt : item.createdAt;
-    const metadata = `${escapeHtml(derivativeKind(item.kind))}${item.status === 'queued' ? queuePosition(state.derivatives, item.id) : ''}${Number.isFinite(taskTime) ? ` · ${escapeHtml(formatTime(taskTime))}` : ''}`;
-    return `<article class="task-row"><div><strong>${escapeHtml(item.title)}</strong><div class="item-meta">${metadata}</div>${item.status === 'processing' ? `<div class="progress-track" aria-label="处理进度 ${Math.round(item.progressPercent || 0)}%"><span style="width:${Math.max(0, Math.min(100, item.progressPercent || 0))}%"></span></div><div class="progress-label">${Math.round(item.progressPercent || 0)}%</div>` : ''}${taskErrorMarkup(item.errorMessage, 'processing', item.errorCode)}</div><div class="item-action"><span class="status status-${cancelled ? 'cancelled' : item.status}">${cancelled ? '已取消' : item.status === 'queued' ? '排队中' : item.status === 'processing' ? '处理中' : item.status === 'completed' ? '已完成' : '处理失败'}</span>${item.status === 'queued' || item.status === 'processing' ? `<button class="button compact danger-text" data-cancel-processing="${item.id}">取消</button>` : ''}${item.status === 'failed' ? `${taskRecoveryButton(item, 'processing')}<button class="button compact" data-retry-processing="${item.id}">${icon('refresh-cw')}${cancelled ? '按原参数重新开始' : '按原参数重试'}</button>` : ''}</div></article>`;
+    const primaryMetadata = [derivativeKind(item.kind), item.projectName].filter(Boolean).join(' · ');
+    const detailMetadata = [derivativeKind(item.kind), item.projectName, Number.isFinite(taskTime) ? formatTime(taskTime) : ''].filter(Boolean).join(' · ');
+    const metadata = taskMetadataMarkup(primaryMetadata, detailMetadata);
+    return `<article class="task-row"><div><strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong>${metadata}${item.status === 'processing' ? `<div class="progress-track" aria-label="处理进度 ${Math.round(item.progressPercent || 0)}%"><span style="width:${Math.max(0, Math.min(100, item.progressPercent || 0))}%"></span></div><div class="progress-label">${Math.round(item.progressPercent || 0)}%</div>` : ''}${taskErrorMarkup(item.errorMessage, 'processing', item.errorCode)}</div><div class="item-action"><span class="status status-${cancelled ? 'cancelled' : item.status}">${cancelled ? '已取消' : item.status === 'queued' ? '排队中' : item.status === 'processing' ? '处理中' : item.status === 'completed' ? '已完成' : '处理失败'}</span>${item.status === 'queued' || item.status === 'processing' ? `<button class="button compact danger-text" data-cancel-processing="${item.id}">取消</button>` : ''}${item.status === 'failed' ? `${taskRecoveryButton(item, 'processing')}<button class="button compact" data-retry-processing="${item.id}">${icon('refresh-cw')}${cancelled ? '按原参数重新开始' : '按原参数重试'}</button>` : ''}</div></article>`;
   }).join('');
   const taskFilters = [
     ['active', '进行中'],
@@ -793,9 +815,14 @@ function renderTasks() {
     ['history', '历史'],
   ];
   const emptyTaskLabels = { active: '没有正在进行的任务', attention: '没有需要处理的问题', history: '还没有历史记录' };
-  main.innerHTML = `<div class="page-toolbar page-toolbar-simple"><div class="tabs" role="tablist" aria-label="任务状态">${taskFilters.map(([value, label]) => `<button class="tab ${state.taskFilter === value ? 'active' : ''}" role="tab" aria-selected="${state.taskFilter === value}" tabindex="${state.taskFilter === value ? '0' : '-1'}" data-task-filter="${value}">${label}</button>`).join('')}</div></div>` + (entries.length ? `
+  const historyActions = state.taskFilter === 'history' && entries.length
+    ? state.pendingHistoryClear
+      ? `<div class="history-clear-confirm"><span>只隐藏任务记录，不删除文件或素材</span><button class="button compact" data-action="cancel-clear-task-history">取消</button><button class="button compact danger-text" data-action="confirm-clear-task-history">确认清除</button></div>`
+      : `<button class="button compact danger-text" data-action="prepare-clear-task-history">${icon('trash-2')}清除历史</button>`
+    : '';
+  main.innerHTML = `<div class="page-toolbar task-toolbar"><div class="tabs" role="tablist" aria-label="任务状态">${taskFilters.map(([value, label]) => `<button class="tab ${state.taskFilter === value ? 'active' : ''}" role="tab" aria-selected="${state.taskFilter === value}" tabindex="${state.taskFilter === value ? '0' : '-1'}" data-task-filter="${value}">${label}</button>`).join('')}</div><div class="task-toolbar-actions">${historyActions}</div></div>` + (entries.length ? `
     <div class="task-list task-list-spaced">${taskRows}</div>${pagination('tasks', state.taskPage, taskPageCount, entries.length)}` : `
-    <div class="empty-state"><div class="empty-state-inner"><div class="empty-icon">${icon('list-checks')}</div><h2>${emptyTaskLabels[state.taskFilter]}</h2><button class="button" data-view="inbox">前往收集箱</button></div></div>`);
+    <div class="empty-state"><div class="empty-state-inner"><div class="empty-icon">${icon('list-checks')}</div><h2>${emptyTaskLabels[state.taskFilter]}</h2><button class="button" data-view="inbox">前往收集</button></div></div>`);
 }
 
 function libraryAssets() {
@@ -810,18 +837,23 @@ function libraryAssets() {
   ];
 }
 
+function libraryAssetKey(item) {
+  return `${item.assetType}:${item.assetId}`;
+}
+
 function libraryAssetCard(item) {
+      const selectionKey = libraryAssetKey(item);
+      const selected = selectedLibraryAssets.has(selectionKey);
       const removalKey = `${item.assetType}:${item.assetId}`;
       const confirmingRemoval = state.pendingLibraryRemoval === removalKey;
       const externalReference = item.assetType === 'original' && item.managedFile === false;
       const primaryAction = !item.fileMissing && item.assetType === 'original'
         ? `<button class="button compact" data-process="${item.id}">${icon('scissors')}处理</button>`
         : item.fileMissing ? `<button class="button compact primary" data-relink-type="${item.assetType}" data-relink-id="${item.assetId}" data-relink-reference="${externalReference}">${icon('folder')}重新定位</button>` : '';
-      const editorAction = !item.fileMissing && state.editor ? `<button class="button compact" data-import-editor-type="${item.assetType}" data-import-editor-id="${item.assetId}">${icon('external-link')}交给剪映</button>` : '';
-      const secondaryActions = `${item.fileMissing ? `<button class="menu-action" aria-label="拖入文件定位" data-relink-drop-type="${item.assetType}" data-relink-drop-id="${item.assetId}" data-relink-drop-reference="${externalReference}">${icon('folder')}拖入文件定位</button>` : `<button class="menu-action" aria-label="编辑信息" data-edit-library-type="${item.assetType}" data-edit-library-id="${item.assetId}">${icon('pencil')}编辑信息</button><button class="menu-action" aria-label="打开文件位置" data-reveal-type="${item.assetType}" data-reveal-id="${item.assetId}">${icon('folder')}文件位置</button><button class="menu-action" aria-label="复制文件路径" data-copy-type="${item.assetType}" data-copy-id="${item.assetId}">${icon('link')}复制路径</button>`}<button class="menu-action danger-text" aria-label="从素材库移除" data-remove-library-type="${item.assetType}" data-remove-library-id="${item.assetId}">${icon('trash-2')}移除</button>`;
+      const secondaryActions = `${item.fileMissing ? `<button class="menu-action" aria-label="拖入文件定位" data-relink-drop-type="${item.assetType}" data-relink-drop-id="${item.assetId}" data-relink-drop-reference="${externalReference}">${icon('folder')}拖入文件定位</button>` : `<button class="menu-action" aria-label="编辑信息" data-edit-library-type="${item.assetType}" data-edit-library-id="${item.assetId}">${icon('pencil')}编辑信息</button><button class="menu-action" aria-label="打开文件位置" data-reveal-type="${item.assetType}" data-reveal-id="${item.assetId}">${icon('folder')}文件位置</button><button class="menu-action" aria-label="复制文件路径" data-copy-type="${item.assetType}" data-copy-id="${item.assetId}">${icon('link')}复制路径</button>`}<button class="menu-action danger-text" aria-label="从素材库移出" data-remove-library-type="${item.assetType}" data-remove-library-id="${item.assetId}">${icon('trash-2')}从素材库移出</button>`;
       const impact = confirmingRemoval ? state.pendingLibraryImpact : null;
       const impactLine = impact ? `${escapeHtml(impact.fileName)}${Number.isFinite(impact.sizeBytes) ? ` · ${formatBytes(impact.sizeBytes)}` : ' · 文件大小未知'}${impact.referenceCount > 1 ? ` · ${impact.referenceCount} 条素材记录引用` : ''}` : '';
-      const removalMessage = externalReference ? `只会移除外部引用，用户原文件不会被删除。${item.fileMissing ? ' 当前路径已经失效。' : ''}` : item.fileMissing ? '素材文件已经不存在，只能移除记录。' : impact?.referenceCount > 1 ? '移到回收站会让所有引用该文件的记录显示缺失。' : '选择保留硬盘文件，或将文件移到 Windows 回收站。';
+      const removalMessage = externalReference ? `只会解除 ClipCargo 的引用，不会删除原文件。${item.fileMissing ? ' 当前路径已经失效。' : ''}` : item.fileMissing ? '原文件已经不存在，只会移除这条素材记录。' : impact?.referenceCount > 1 ? `删除文件会让 ${impact.referenceCount} 条素材记录都变为缺失。` : '从素材库移出不会删除硬盘文件；需要删除文件时，请选择“删除文件到回收站”。';
       const badge = item.fileMissing
         ? '<span class="state-pill warning">文件缺失</span>'
         : externalReference
@@ -829,13 +861,16 @@ function libraryAssetCard(item) {
           : '';
       const assetTime = Number.isFinite(item.updatedAt) ? item.updatedAt : item.createdAt;
       const metadata = `<span>${escapeHtml(item.kindLabel)}</span><span>·</span><span>${escapeHtml(item.projectName || '未分类')}</span>${item.sourceHost ? `<span>·</span><span>${escapeHtml(item.sourceHost)}</span>` : ''}${item.durationSeconds != null ? `<span>·</span><span>${formatDuration(item.durationSeconds)}</span>` : ''}${Number.isFinite(assetTime) ? `<span>·</span><time>${escapeHtml(formatTime(assetTime))}</time>` : ''}`;
-      const mediaActions = `<div class="media-primary-actions">${primaryAction}${editorAction}</div><details class="media-more"><summary class="icon-button" aria-label="更多操作" title="更多操作">${icon('ellipsis')}</summary><div class="media-more-menu">${secondaryActions}</div></details>`;
-      return `<article class="media-card ${item.fileMissing ? 'missing' : ''}"><button class="media-preview" ${item.fileMissing ? 'disabled' : `data-play-type="${item.assetType}" data-play-id="${item.assetId}"`}><div class="media-thumb">${safeThumbnail(item.thumbnailUrl) ? `<img src="${escapeHtml(safeThumbnail(item.thumbnailUrl))}" alt="" loading="lazy">` : ''}<span class="play-overlay">${icon(item.fileMissing ? 'circle-alert' : 'circle-play')}</span></div><div class="media-info"><div class="media-title-row"><strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong></div><div class="media-badge-row">${badge}</div><div class="item-meta">${metadata}</div></div></button>${confirmingRemoval ? `<div class="library-removal-confirm"><span>${impactLine ? `<strong>${impactLine}</strong><br>` : ''}${removalMessage}</span><div><button class="button compact" data-cancel-library-removal>取消</button><button class="button compact" data-confirm-library-removal-type="${item.assetType}" data-confirm-library-removal-id="${item.assetId}">仅移出库</button>${item.fileMissing || externalReference ? '' : `<button class="button compact danger-text" data-trash-library-type="${item.assetType}" data-trash-library-id="${item.assetId}">移到回收站</button>`}</div></div>` : `<div class="media-actions">${mediaActions}</div>`}</article>`;
+      const mediaActions = `<div class="media-primary-actions">${primaryAction}</div><details class="media-more"><summary class="icon-button" aria-label="更多操作" title="更多操作">${icon('ellipsis')}</summary><div class="media-more-menu">${secondaryActions}</div></details>`;
+      const preserveLabel = externalReference ? '解除引用' : item.fileMissing ? '移除记录' : '仅从素材库移出';
+      return `<article class="media-card ${item.fileMissing ? 'missing' : ''} ${selected ? 'selected' : ''}"><label class="media-select"><input type="checkbox" data-select-library="${escapeHtml(selectionKey)}" aria-label="选择 ${escapeHtml(item.title)}" ${selected ? 'checked' : ''}></label><button class="media-preview" ${item.fileMissing ? 'disabled' : `data-play-type="${item.assetType}" data-play-id="${item.assetId}"`}><div class="media-thumb">${safeThumbnail(item.thumbnailUrl) ? `<img src="${escapeHtml(safeThumbnail(item.thumbnailUrl))}" alt="" loading="lazy">` : ''}<span class="play-overlay">${icon(item.fileMissing ? 'circle-alert' : 'circle-play')}</span></div><div class="media-info"><div class="media-title-row"><strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong></div><div class="media-badge-row">${badge}</div><div class="item-meta">${metadata}</div></div></button>${confirmingRemoval ? `<div class="library-removal-confirm"><span>${impactLine ? `<strong>${impactLine}</strong><br>` : ''}${removalMessage}</span><div><button class="button compact" data-cancel-library-removal>取消</button><button class="button compact" data-confirm-library-removal-type="${item.assetType}" data-confirm-library-removal-id="${item.assetId}">${preserveLabel}</button>${item.fileMissing || externalReference ? '' : `<button class="button compact danger-text" data-trash-library-type="${item.assetType}" data-trash-library-id="${item.assetId}">删除文件到回收站</button>`}</div></div>` : `<div class="media-actions">${mediaActions}</div>`}</article>`;
 }
 
 function renderLibrary() {
   const query = state.libraryQuery.trim().toLocaleLowerCase('zh-CN');
   const allAssets = libraryAssets();
+  const validLibraryKeys = new Set(allAssets.map(libraryAssetKey));
+  for (const key of selectedLibraryAssets) if (!validLibraryKeys.has(key)) selectedLibraryAssets.delete(key);
   const projectOptions = state.projects.map((project) => `<option value="${escapeHtml(project.name)}" ${state.libraryProject === project.name ? 'selected' : ''}>${escapeHtml(project.name)}</option>`).join('');
   const tabs = `<div class="tabs library-view-tabs" role="tablist" aria-label="素材库视图"><button class="tab ${state.libraryView === 'projects' ? 'active' : ''}" role="tab" aria-selected="${state.libraryView === 'projects'}" data-library-view="projects">素材项目</button><button class="tab ${state.libraryView === 'assets' ? 'active' : ''}" role="tab" aria-selected="${state.libraryView === 'assets'}" data-library-view="assets">全部素材</button></div>`;
   const controls = `<div class="library-controls"><input id="library-search" class="search-control" type="search" placeholder="搜索标题、来源或路径" value="${escapeHtml(state.libraryQuery)}"><select id="library-project" class="field-control compact-select" aria-label="按项目筛选"><option value="all">全部项目</option>${projectOptions}</select>${state.libraryView === 'assets' ? `<select id="library-kind" class="field-control compact-select" aria-label="按素材类型筛选"><option value="all" ${state.libraryKind === 'all' ? 'selected' : ''}>全部类型</option><option value="video" ${state.libraryKind === 'video' ? 'selected' : ''}>视频</option><option value="audio" ${state.libraryKind === 'audio' ? 'selected' : ''}>音频</option><option value="original" ${state.libraryKind === 'original' ? 'selected' : ''}>原片</option><option value="derivative" ${state.libraryKind === 'derivative' ? 'selected' : ''}>处理副本</option></select>` : ''}<select id="library-sort" class="field-control compact-select" aria-label="素材排序"><option value="newest" ${state.librarySort === 'newest' ? 'selected' : ''}>最新</option><option value="oldest" ${state.librarySort === 'oldest' ? 'selected' : ''}>最早</option><option value="name" ${state.librarySort === 'name' ? 'selected' : ''}>名称</option><option value="duration" ${state.librarySort === 'duration' ? 'selected' : ''}>时长</option></select><button class="button" data-action="choose-local-media">${icon('file-video')}导入</button></div>`;
@@ -852,7 +887,7 @@ function renderLibrary() {
     const pageCount = Math.max(1, Math.ceil(projects.length / LIBRARY_PAGE_SIZE));
     state.libraryPage = Math.min(Math.max(1, state.libraryPage), pageCount);
     const pageProjects = projects.slice((state.libraryPage - 1) * LIBRARY_PAGE_SIZE, state.libraryPage * LIBRARY_PAGE_SIZE);
-    main.innerHTML = `<div class="page-toolbar library-toolbar">${tabs}${controls}</div>` + (projects.length ? `<div class="asset-project-grid">${pageProjects.map(({ job, videoCount, audioCount }) => `<article class="asset-project-card ${job.fileMissing ? 'missing' : ''}"><button class="asset-project-preview" data-open-library-project="${job.id}"><div class="asset-project-cover">${safeThumbnail(job.thumbnailUrl) ? `<img src="${escapeHtml(safeThumbnail(job.thumbnailUrl))}" alt="" loading="lazy">` : `<span>${icon('film')}</span>`}${job.fileMissing ? `<span class="project-missing">文件缺失</span>` : ''}</div><div class="asset-project-content"><strong title="${escapeHtml(job.title)}">${escapeHtml(job.title)}</strong><span>${escapeHtml(job.sourceHost || '本地素材')} · ${escapeHtml(job.projectName || '未分类')}${job.durationSeconds != null ? ` · ${formatDuration(job.durationSeconds)}` : ''}</span><div class="asset-counts"><span>${icon('film')}视频 ${videoCount}</span><span>${icon('music-2')}音频 ${audioCount}</span><span>${icon('file-video')}图片 ${job.imageCount || 0}</span><span>${icon('list-checks')}字幕 ${job.subtitleCount || 0}</span></div></div></button><div class="asset-project-actions"><button class="button compact primary" data-open-library-project="${job.id}">查看素材</button>${job.fileMissing ? '' : `${state.editor ? `<button class="button compact" data-import-package-editor="${job.id}">${icon('external-link')}导入剪映</button>` : ''}<button class="button compact" data-open-asset-package="${job.id}">${icon('folder')}打开文件夹</button><button class="button compact" data-process="${job.id}">${icon('scissors')}处理</button>`}</div></article>`).join('')}</div>${pagination('library', state.libraryPage, pageCount, projects.length)}` : state.libraryQuery || state.libraryProject !== 'all' ? `<div class="empty-state"><div class="empty-state-inner"><h2>没有匹配的素材项目</h2><button class="button" data-action="clear-library-filters">清除筛选</button></div></div>` : `<div class="empty-state"><div class="empty-state-inner"><div class="empty-icon">${icon('film')}</div><h2>素材库为空</h2><button class="button" data-view="inbox">前往收集箱</button></div></div>`);
+    main.innerHTML = `<div class="page-toolbar library-toolbar">${tabs}${controls}</div>` + (projects.length ? `<div class="asset-project-grid">${pageProjects.map(({ job, videoCount, audioCount }) => `<article class="asset-project-card ${job.fileMissing ? 'missing' : ''}"><button class="asset-project-preview" data-open-library-project="${job.id}"><div class="asset-project-cover">${safeThumbnail(job.thumbnailUrl) ? `<img src="${escapeHtml(safeThumbnail(job.thumbnailUrl))}" alt="" loading="lazy">` : `<span>${icon('film')}</span>`}${job.fileMissing ? `<span class="project-missing">文件缺失</span>` : ''}</div><div class="asset-project-content"><strong title="${escapeHtml(job.title)}">${escapeHtml(job.title)}</strong><span>${escapeHtml(job.sourceHost || '本地素材')} · ${escapeHtml(job.projectName || '未分类')}${job.durationSeconds != null ? ` · ${formatDuration(job.durationSeconds)}` : ''}</span><div class="asset-counts"><span>${icon('film')}视频 ${videoCount}</span><span>${icon('music-2')}音频 ${audioCount}</span><span>${icon('file-video')}图片 ${job.imageCount || 0}</span><span>${icon('list-checks')}字幕 ${job.subtitleCount || 0}</span></div></div></button><div class="asset-project-actions"><button class="button compact primary" data-open-library-project="${job.id}">查看素材</button>${job.fileMissing ? '' : `${state.editor ? `<button class="button compact" data-import-package-editor="${job.id}">${icon('external-link')}导入剪辑</button>` : ''}<button class="button compact" data-open-asset-package="${job.id}">${icon('folder')}打开文件夹</button><button class="button compact" data-process="${job.id}">${icon('scissors')}处理</button>`}</div></article>`).join('')}</div>${pagination('library', state.libraryPage, pageCount, projects.length)}` : state.libraryQuery || state.libraryProject !== 'all' ? `<div class="empty-state"><div class="empty-state-inner"><h2>没有匹配的素材项目</h2><button class="button" data-action="clear-library-filters">清除筛选</button></div></div>` : `<div class="empty-state"><div class="empty-state-inner"><div class="empty-icon">${icon('film')}</div><h2>素材库为空</h2><button class="button" data-view="inbox">前往收集</button></div></div>`);
   } else {
     let assets = allAssets.filter((item) => {
       const matchesQuery = !query || [item.title, item.kindLabel, item.sourceHost, item.projectName, item.filePath].some((value) => String(value || '').toLocaleLowerCase('zh-CN').includes(query));
@@ -866,10 +901,14 @@ function renderLibrary() {
     state.libraryPage = Math.min(Math.max(1, state.libraryPage), pageCount);
     const pageAssets = assets.slice((state.libraryPage - 1) * LIBRARY_PAGE_SIZE, state.libraryPage * LIBRARY_PAGE_SIZE);
     const sourceJob = state.librarySourceJob == null ? null : state.jobs.find((job) => job.id === state.librarySourceJob);
-    const sourceBar = sourceJob ? `<div class="library-source-bar"><button class="button compact" data-library-view="projects">${icon('chevron-right')}返回项目</button><div class="library-source-title"><span>来源标题</span><strong title="${escapeHtml(sourceJob.title)}">${escapeHtml(sourceJob.title)}</strong></div>${state.editor ? `<button class="button compact" data-import-package-editor="${sourceJob.id}">${icon('external-link')}导入剪映</button>` : ''}<button class="button compact" data-open-asset-package="${sourceJob.id}">${icon('folder')}打开文件夹</button></div>` : '';
-    main.innerHTML = `<div class="page-toolbar library-toolbar">${tabs}${controls}</div>${sourceBar}` + (assets.length ? `<div class="media-grid">${pageAssets.map(libraryAssetCard).join('')}</div>${pagination('library', state.libraryPage, pageCount, assets.length)}` : state.libraryQuery || state.libraryProject !== 'all' || state.libraryKind !== 'all' || sourceJob ? `
+    const visibleSelectionKeys = pageAssets.map(libraryAssetKey);
+    const selectedLibraryCount = selectedLibraryAssets.size;
+    const selectedVisibleCount = visibleSelectionKeys.filter((key) => selectedLibraryAssets.has(key)).length;
+    const librarySelectionBar = selectedLibraryCount ? `<div class="library-selection-bar"><label><input type="checkbox" data-select-library-visible ${selectedVisibleCount === pageAssets.length ? 'checked' : ''} ${pageAssets.length ? '' : 'disabled'}><span>已选 ${selectedLibraryCount} 个</span></label><div class="selection-actions"><button class="button primary" data-action="import-selected-library" ${state.editor ? '' : 'disabled'}>${icon('external-link')}导入剪辑</button><button class="button" data-action="clear-library-selection">清除选择</button></div></div>` : '';
+    const sourceBar = sourceJob ? `<div class="library-source-bar"><button class="button compact" data-library-view="projects">${icon('chevron-right')}返回项目</button><div class="library-source-title"><span>来源标题</span><strong title="${escapeHtml(sourceJob.title)}">${escapeHtml(sourceJob.title)}</strong></div><button class="button compact" data-open-asset-package="${sourceJob.id}">${icon('folder')}打开文件夹</button></div>` : '';
+    main.innerHTML = `<div class="page-toolbar library-toolbar">${tabs}${controls}</div>${sourceBar}${librarySelectionBar}` + (assets.length ? `<div class="media-grid">${pageAssets.map(libraryAssetCard).join('')}</div>${pagination('library', state.libraryPage, pageCount, assets.length)}` : state.libraryQuery || state.libraryProject !== 'all' || state.libraryKind !== 'all' || sourceJob ? `
     <div class="empty-state"><div class="empty-state-inner"><h2>没有匹配的素材</h2><button class="button" data-action="clear-library-filters">清除筛选</button></div></div>` : `
-    <div class="empty-state"><div class="empty-state-inner"><div class="empty-icon">${icon('film')}</div><h2>素材库为空</h2><button class="button" data-view="inbox">前往收集箱</button></div></div>`);
+    <div class="empty-state"><div class="empty-state-inner"><div class="empty-icon">${icon('film')}</div><h2>素材库为空</h2><button class="button" data-view="inbox">前往收集</button></div></div>`);
   }
   main.querySelectorAll('.media-thumb img').forEach((image) => {
     image.addEventListener('error', () => image.remove(), { once: true });
@@ -877,6 +916,31 @@ function renderLibrary() {
   main.querySelectorAll('.asset-project-cover img').forEach((image) => {
     image.addEventListener('error', () => image.remove(), { once: true });
   });
+}
+
+async function importSelectedLibraryAssets(button) {
+  const assets = libraryAssets().filter((item) => selectedLibraryAssets.has(libraryAssetKey(item)) && !item.fileMissing);
+  if (!assets.length) return;
+  if (!state.editor) {
+    notify('请先在设置中选择可用的导入目标');
+    return;
+  }
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = '导入中…';
+  try {
+    const result = await invoke('import_selected_media_to_editor', {
+      editorId: state.editor.id,
+      assets: assets.map((item) => ({ assetType: item.assetType, assetId: item.assetId })),
+    });
+    selectedLibraryAssets.clear();
+    render();
+    notify(`已导入 ${result.importedCount} 个素材到${result.editorName}`);
+  } catch (error) {
+    notify(readableError(error));
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
 }
 
 function openMediaEdit(assetType, assetId) {
@@ -1054,7 +1118,7 @@ function renderBrowser() {
   const extensionPackageVersion = bridge?.extensionPackageVersion || state.appInfo?.extensionVersion || '';
   const extensionNeedsReload = Boolean(isDevelopmentExtension && extensionPackageVersion && bridge?.extensionVersion && bridge.extensionVersion !== extensionPackageVersion);
   const bridgeHostInstalled = bridge?.hostInstalled === true;
-  const bridgeBadge = bridgeLoading ? '检测中…' : extensionActive
+  const bridgeBadge = bridgeLoading ? '读取中…' : extensionActive
     ? (isStoreExtension ? '商店版已启用' : isDevelopmentExtension ? '测试版已启用' : '已启用')
     : extensionVerified ? (isStoreExtension ? '商店版已安装' : isDevelopmentExtension ? '测试版已安装' : '已安装')
       : bridgeHostInstalled ? '待安装' : '桥接未就绪';
@@ -1064,15 +1128,17 @@ function renderBrowser() {
         : extensionActive ? `${isDevelopmentExtension ? '开发测试版' : '扩展'} ${escapeHtml(bridge.extensionVersion || '未知')} · 最近通信 ${escapeHtml(formatTime(bridge.lastSeenAt))}`
           : extensionVerified ? `扩展 ${escapeHtml(bridge.extensionVersion || '未知')} · 等待浏览器重新连接`
             : bridgeHostInstalled ? '尚未检测到 Chrome Web Store 扩展，安装后视频卡片会显示 ClipCargo 浮标。' : '桌面桥接尚未准备好，请重新安装完整版本。';
-  const extensionDistributionNote = showDeveloperExtensionFlow ? '<span>开发测试版 · 仅供开发者使用</span>' : isStoreExtension ? '' : '<span>未检测到 Chrome Web Store 扩展，请先安装商店版。</span>';
+  const extensionDistributionNote = showDeveloperExtensionFlow ? '<span>开发测试版</span>' : isStoreExtension ? '' : '<span>商店版未安装</span>';
   const extensionAction = showDeveloperExtensionFlow
     ? `<button class="button" data-action="open-extension" ${bridgeHostInstalled ? '' : 'disabled'}>${icon('folder')}打开本地扩展文件</button>`
     : `<button class="button primary" data-action="open-extension-store">${icon('globe-2')}打开 Chrome 商店</button>`;
   const extensionCheckAction = state.bridgeChecking
-    ? `<button class="button" data-action="check-extension" disabled aria-busy="true" aria-label="正在检测…">${icon('refresh-cw')}正在检测…</button>`
-    : `<button class="button" data-action="check-extension" ${bridgeHostInstalled ? '' : 'disabled'}>${icon('refresh-cw')}检测连接</button>`;
+    ? `<button class="button connection-check-button" data-action="check-extension" disabled aria-busy="true" aria-label="正在检查浏览器连接">${icon('refresh-cw')}正在检查</button>`
+    : `<button class="button connection-check-button" data-action="check-extension" ${bridgeHostInstalled ? '' : 'disabled'}>${icon('refresh-cw')}检查浏览器连接</button>`;
   const extensionTestDetails = showDeveloperExtensionFlow ? '<details class="setup-details"><summary>开发者测试说明</summary><p>本地测试扩展只用于开发验证，不代表商店用户安装的版本。</p><ol><li>点击“打开本地扩展文件”，在浏览器扩展页开启开发者模式。</li><li>选择软件释放的扩展文件夹并加载。</li><li>开发测试时保持开发者模式开启；普通用户不需要这一步。</li></ol></details>' : '';
-  const extensionDetailMarkup = extensionDetail ? `<small class="setting-status-detail">${extensionDetail}</small>` : '';
+  const extensionDetailMarkup = extensionDetail && (!extensionActive || extensionNeedsReload)
+    ? `<small class="setting-status-detail" data-tooltip="${escapeHtml(extensionDetail)}">${escapeHtml(extensionNeedsReload ? '需要重新加载扩展' : extensionDetail)}</small>`
+    : '';
   const authBrowsers = Array.isArray(state.authBrowsers) ? state.authBrowsers : [];
   const installedAuthBrowsers = authBrowsers.filter((browser) => browser.installed);
   const authBrowserChoice = state.authBrowserChoice || state.authBrowser || installedAuthBrowsers[0]?.id || authBrowsers[0]?.id || 'chrome';
@@ -1091,12 +1157,28 @@ function renderBrowser() {
   const label = (text) => `<span class="setting-label">${text}</span>`;
   const panel = (id, title, body) => `<section id="${id}-settings-panel" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-${id}" tabindex="-1" data-settings-panel="${id}" ${state.settingsSection === id ? '' : 'hidden'}><div class="settings-panel-header"><h1>${title}</h1></div>${body}</section>`;
   const categories = [['general', '通用', 'settings'], ['download', '下载', 'download'], ['tools', '工具', 'blocks'], ['extension', '浏览器扩展', 'puzzle'], ['shortcuts', '快捷键', 'keyboard'], ['version', '版本', 'badge-check'], ['about', '关于', 'info']];
-  const general = `<div class="settings-card settings-rows"><div class="settings-row">${label('主题')}<select id="setting-theme" class="field-control"><option value="system" ${preferences.theme === 'system' ? 'selected' : ''}>跟随系统</option><option value="light" ${preferences.theme === 'light' ? 'selected' : ''}>浅色</option><option value="dark" ${preferences.theme === 'dark' ? 'selected' : ''}>深色</option></select></div><div class="settings-row">${label('默认项目')}<select id="setting-default-project" class="field-control">${state.projects.map((project) => `<option value="${escapeHtml(project.name)}" ${preferredProject() === project.name ? 'selected' : ''}>${escapeHtml(project.name)}</option>`).join('')}</select></div></div>`;
+  const editorOptions = state.editors.length
+    ? `<option value="auto" ${state.editorTarget === 'auto' ? 'selected' : ''}>自动选择</option>${state.editors.map((editor) => `<option value="${escapeHtml(editor.id)}" ${state.editorTarget === editor.id ? 'selected' : ''} ${editor.ready === false ? 'disabled' : ''}>${escapeHtml(editor.name)}${editor.ready === false ? '（未连接）' : ''}</option>`).join('')}`
+    : '<option value="auto">未检测到剪辑软件</option>';
+  const editorTargetSetting = `<div class="settings-row">${label('导入目标')}<select id="setting-editor-target" class="field-control" ${state.editors.length ? '' : 'disabled'}>${editorOptions}</select></div>`;
+  const general = `<div class="settings-card settings-rows"><div class="settings-row">${label('主题')}<select id="setting-theme" class="field-control"><option value="system" ${preferences.theme === 'system' ? 'selected' : ''}>跟随系统</option><option value="light" ${preferences.theme === 'light' ? 'selected' : ''}>浅色</option><option value="dark" ${preferences.theme === 'dark' ? 'selected' : ''}>深色</option></select></div><div class="settings-row">${label('默认项目')}<select id="setting-default-project" class="field-control">${state.projects.map((project) => `<option value="${escapeHtml(project.name)}" ${preferredProject() === project.name ? 'selected' : ''}>${escapeHtml(project.name)}</option>`).join('')}</select></div>${editorTargetSetting}</div>`;
   const download = `<div class="settings-card settings-rows"><div class="settings-row">${label('同时下载')}<select id="setting-download-concurrency" class="field-control"><option value="1" ${preferences.downloadConcurrency === 1 ? 'selected' : ''}>1 个任务</option><option value="2" ${preferences.downloadConcurrency === 2 ? 'selected' : ''}>2 个任务</option><option value="3" ${preferences.downloadConcurrency === 3 ? 'selected' : ''}>3 个任务</option><option value="4" ${preferences.downloadConcurrency === 4 ? 'selected' : ''}>4 个任务</option></select></div><div class="settings-row">${label('默认输出')}<select id="setting-download-preset" class="field-control"><option value="package" ${preferences.downloadPreset === 'package' ? 'selected' : ''}>完整素材包</option><option value="video" ${preferences.downloadPreset === 'video' ? 'selected' : ''}>兼容 MP4</option><option value="source" ${preferences.downloadPreset === 'source' ? 'selected' : ''}>保留来源格式</option><option value="audio" ${preferences.downloadPreset === 'audio' ? 'selected' : ''}>只要音频</option></select></div>${preferences.downloadPreset !== 'audio' ? `<div class="settings-row">${label('默认清晰度')}<select id="setting-download-quality" class="field-control"><option value="1080" ${preferences.downloadQuality === '1080' ? 'selected' : ''}>最高 1080p</option><option value="720" ${preferences.downloadQuality === '720' ? 'selected' : ''}>最高 720p</option><option value="best" ${preferences.downloadQuality === 'best' ? 'selected' : ''}>最佳可用</option></select></div><label class="settings-row check-setting">${label('默认保存字幕')}<input id="setting-save-subtitles" type="checkbox" ${preferences.saveSubtitles ? 'checked' : ''}></label>` : ''}</div>`;
-  const extension = `<div class="settings-card setting-card"><div class="setting-title"><h2>浏览器收集</h2><span class="state-pill ${bridgeLoading ? 'neutral' : extensionActive ? 'success' : extensionVerified ? 'neutral' : 'warning'}">${bridgeBadge}</span></div>${extensionDetailMarkup}${extensionDistributionNote ? `<div class="extension-distribution-note">${extensionDistributionNote}</div>` : ''}<div class="setting-actions">${extensionAction}${extensionCheckAction}</div>${extensionTestDetails}</div><section id="auth-settings" class="settings-card setting-card" tabindex="-1"><div class="setting-title"><h2>需要登录的视频</h2><span class="state-pill ${state.authLoginOpen ? 'warning' : 'neutral'}">${state.authLoginOpen ? '等待登录' : state.authConfigured ? '已验证登录' : '未设置'}</span></div><p class="setting-hint">登录信息只保存在本机隔离浏览器配置中，用于需要会话的视频来源。</p>${state.authLoginError ? `<div class="auth-login-error" role="alert">${escapeHtml(state.authLoginError)}</div>` : ''}<div class="setting-actions">${state.authLoginOpen ? `<button class="button primary" data-action="finish-source-login">检查登录状态</button><button class="button" data-action="clear-source-browser">取消</button>` : `${authBrowserControl}${state.authConfigured ? '<button class="button danger-text" data-action="clear-source-browser">清除登录配置</button>' : ''}`}</div></section>`;
+  const extension = `<div class="settings-card setting-card extension-card${state.bridgeChecking ? ' is-checking' : ''}"><div class="setting-title"><h2>浏览器扩展</h2><span class="state-pill ${bridgeLoading ? 'neutral' : extensionActive ? 'success' : extensionVerified ? 'neutral' : 'warning'}">${bridgeBadge}</span></div>${extensionDetailMarkup}${extensionDistributionNote ? `<div class="extension-distribution-note">${extensionDistributionNote}</div>` : ''}<div class="setting-actions">${extensionAction}${extensionCheckAction}</div>${extensionTestDetails}</div><section id="auth-settings" class="settings-card setting-card" tabindex="-1"><div class="setting-title"><h2>需要登录的视频</h2><span class="state-pill ${state.authLoginOpen ? 'warning' : 'neutral'}">${state.authLoginOpen ? '等待登录' : state.authConfigured ? '已验证登录' : '未设置'}</span></div><p class="setting-hint">登录信息只保存在本机隔离浏览器配置中，用于需要会话的视频来源。</p>${state.authLoginError ? `<div class="auth-login-error" role="alert">${escapeHtml(state.authLoginError)}</div>` : ''}<div class="setting-actions">${state.authLoginOpen ? `<button class="button primary" data-action="finish-source-login">检查登录状态</button><button class="button" data-action="clear-source-browser">取消</button>` : `${authBrowserControl}${state.authConfigured ? '<button class="button danger-text" data-action="clear-source-browser">清除登录配置</button>' : ''}`}</div></section>`;
   const tools = `<section class="settings-card setting-card"><div class="setting-title"><h2>文件保存位置</h2><span class="state-pill ${components?.storageFreeBytes == null ? 'neutral' : components.storageFreeBytes < 536870912 ? 'warning' : 'success'}">${components?.storageFreeBytes == null ? '等待检测' : `${formatBytes(components.storageFreeBytes)} 可用`}</span></div><div class="storage-path" data-tooltip="${escapeHtml(components?.downloadsDirectory || '尚未确定')}">${escapeHtml(components?.downloadsDirectory || '尚未确定')}</div><div class="setting-actions"><button class="button primary" data-action="choose-downloads-directory">${icon('folder')}更改位置</button><button class="button" data-action="open-downloads-directory">${icon('external-link')}打开文件夹</button></div></section><section id="components-settings" class="settings-card setting-card components-card" tabindex="-1"><div class="setting-title"><h2>所需工具</h2><span class="state-pill neutral">按需安装${components?.totalBytes ? ` · ${formatBytes(components.totalBytes)}` : ''}</span></div><div class="component-location"><div><strong>工具安装位置</strong><small data-tooltip="${escapeHtml(components?.componentDirectory || '尚未确定')}">${escapeHtml(components?.componentDirectory || '尚未确定')}</small></div><div class="setting-actions"><button class="button compact" data-action="choose-components-directory">${icon('folder')}更改位置</button><button class="button compact" data-action="open-components">${icon('external-link')}打开工具目录</button></div></div>${components?.installing ? `<div class="component-install-progress" role="status" aria-live="polite"><div><strong>${escapeHtml(installingTitle)} · ${componentCancelRequested ? '正在取消…' : installPhaseText}</strong><span>${installProgress}%</span></div><progress max="100" value="${installProgress}">${installProgress}%</progress><button class="button compact" data-action="cancel-active-component-install" ${componentCancelRequested ? 'disabled' : ''}>${componentCancelRequested ? '正在取消…' : '取消安装'}</button></div>` : componentInstallFailure ? `<div class="component-install-failure" role="alert"><span>${escapeHtml(componentInstallFailure)}</span><button class="button compact" data-action="dismiss-component-error">关闭</button></div>` : ''}<div class="component-list">${componentRow('yt-dlp', '下载引擎', parserReady, parserReady ? `版本 ${escapeHtml(compactComponentVersion(components.ytDlpVersion))} · ${formatBytes(components.ytDlpBytes)}` : '识别视频链接并下载原画质内容')}${componentRow('deno', '网站兼容工具', components?.denoReady, components?.denoReady ? `版本 ${escapeHtml(compactComponentVersion(components.denoVersion))} · ${formatBytes(components.denoBytes)}` : '支持部分需要网页脚本解析的网站，安装后自动使用')}${componentRow('ffmpeg', '视频处理工具', components?.ffmpegReady, components?.ffmpegReady ? `版本 ${escapeHtml(compactComponentVersion(components.ffmpegVersion))} · ${formatBytes(components.ffmpegBytes)}` : '合并音画、转 MP4、裁剪和提取音频')}</div></section>`;
-  const shortcuts = `<div class="settings-card shortcut-list"><div><kbd>Ctrl</kbd> + <kbd>A</kbd><span>选择当前收集箱筛选结果</span></div><div><kbd>Space</kbd><span>播放或暂停本地预览</span></div><div><kbd>←</kbd> / <kbd>→</kbd><span>预览中后退或前进 5 秒</span></div><div><kbd>Esc</kbd><span>关闭弹窗、菜单或取消拖放操作</span></div></div>`;
-  const version = `<div class="settings-card version-card"><div class="version-row"><span>ClipCargo</span><strong>${escapeHtml(state.appInfo?.applicationVersion || '读取中…')}</strong></div><div class="version-row"><span>浏览器扩展</span><strong>${escapeHtml(bridge?.extensionVersion || extensionPackageVersion || '未检测')}</strong></div><div class="version-row"><span>桥接协议</span><strong>v${escapeHtml(String(state.appInfo?.bridgeProtocolVersion || bridge?.protocolVersion || 1))}</strong></div><div class="version-row"><span>最近自检</span><strong>${state.appInfo?.checkedAt ? escapeHtml(formatTime(state.appInfo.checkedAt)) : '尚未完成'}</strong></div><div class="setting-actions"><button class="button" data-action="check-extension" ${bridgeHostInstalled ? '' : 'disabled'}>${icon('refresh-cw')}重新检查扩展</button></div></div>`;
+  const shortcuts = `<div class="settings-card shortcut-list"><div><kbd>Ctrl</kbd> + <kbd>A</kbd><span>选择当前收集筛选结果</span></div><div><kbd>Space</kbd><span>播放或暂停本地预览</span></div><div><kbd>←</kbd> / <kbd>→</kbd><span>预览中后退或前进 5 秒</span></div><div><kbd>Esc</kbd><span>关闭弹窗、菜单或取消拖放操作</span></div></div>`;
+  const update = state.updateChecking
+    ? { label: '检查中…', tone: 'neutral', detail: '正在查询 GitHub' }
+    : state.updateCheck?.status === 'available'
+      ? { label: `有新版本 ${state.updateCheck.latestVersion}`, tone: 'warning', detail: '可打开发布页' }
+      : state.updateCheck?.status === 'current'
+        ? { label: '已是最新版本', tone: 'success', detail: '无需更新' }
+        : state.updateCheck?.status === 'unpublished'
+          ? { label: '暂无公开版本', tone: 'neutral', detail: '当前版本未发布' }
+          : state.updateCheck?.status === 'failed'
+            ? { label: '检查失败', tone: 'warning', detail: '网络暂时不可用，点击重试' }
+            : { label: '未检查', tone: 'neutral', detail: '手动检查 GitHub 公开版本' };
+  const updateErrorTooltip = state.updateCheck?.status === 'failed' && state.updateCheck?.message ? ` data-tooltip="${escapeHtml(state.updateCheck.message)}"` : '';
+  const version = `<div class="settings-card version-card"><div class="version-row"><span>ClipCargo</span><strong>${escapeHtml(state.appInfo?.applicationVersion || '读取中…')}</strong></div><div class="version-row"><span>浏览器扩展</span><strong>${escapeHtml(bridge?.extensionVersion || extensionPackageVersion || '未检测')}</strong></div><div class="version-row"><span>桥接协议</span><strong>v${escapeHtml(String(state.appInfo?.bridgeProtocolVersion || bridge?.protocolVersion || 1))}</strong></div><div class="version-update" role="status" aria-live="polite"><div class="version-update-status"${updateErrorTooltip}><span class="state-pill ${update.tone}">${escapeHtml(update.label)}</span><small>${escapeHtml(update.detail)}</small></div><div class="setting-actions"><button class="button" data-action="check-app-update" ${state.updateChecking ? 'disabled aria-busy="true"' : ''}>${icon('refresh-cw')}${state.updateChecking ? '正在检查' : '检查更新'}</button>${state.updateCheck?.releaseUrl ? `<button class="button" data-action="open-update-page">${icon('external-link')}打开发布页</button>` : ''}</div></div></div>`;
   const about = `<div class="settings-card about-card"><div class="about-mark">${icon('package-open')}</div><div><h2>本地优先的网页视频素材工具</h2><p>ClipCargo 只在你主动选择时收集页面链接，媒体文件和处理结果保存在本机。</p><p class="muted">许可证、隐私政策和第三方声明均随安装包提供。</p><div class="setting-actions"><button class="button" data-action="open-extension-store">${icon('globe-2')}扩展商店</button></div></div></div>`;
   const panels = panel('general', '通用', general) + panel('download', '下载', download) + panel('tools', '工具', tools) + panel('extension', '浏览器扩展', extension) + panel('shortcuts', '快捷键', shortcuts) + panel('version', '版本', version) + panel('about', '关于', about);
   main.innerHTML = `<div class="settings-layout"><aside class="settings-nav" role="tablist" aria-label="设置分类">${categories.map(([id, text, iconName]) => { const active = state.settingsSection === id; return `<button id="settings-tab-${id}" class="settings-nav-item ${active ? 'active' : ''}" role="tab" data-settings-section="${id}" aria-selected="${active}" aria-controls="${id}-settings-panel" tabindex="${active ? '0' : '-1'}">${icon(iconName)}<span>${text}</span></button>`; }).join('')}</aside><div class="settings-content">${panels}</div></div>`;
@@ -1179,7 +1261,11 @@ async function refreshSettingsState() {
 async function refreshEditorState() {
   if (!invoke) return;
   const editors = await invoke('list_video_editors').catch(() => []);
-  state.editor = Array.isArray(editors) ? editors.find((editor) => editor.id === 'jianying-pro' && editor.verified === true) || null : null;
+  state.editors = Array.isArray(editors) ? editors : [];
+  const readyEditors = state.editors.filter((editor) => editor.verified === true && editor.ready !== false);
+  state.editor = state.editorTarget !== 'auto'
+    ? readyEditors.find((editor) => editor.id === state.editorTarget) || null
+    : readyEditors[0] || null;
 }
 
 async function refreshInbox({ quiet = false } = {}) {
@@ -1207,7 +1293,7 @@ async function refreshInbox({ quiet = false } = {}) {
     state.loading = false;
     if (wasLoading) render();
     else if (dataChanged) renderPreservingInteraction();
-    if (quiet && receivedItem) notify('已收到浏览器收集的页面');
+    if (quiet && receivedItem) notify('已收到浏览器发送的页面');
   } catch (error) {
     const wasLoading = state.loading;
     state.loading = false;
@@ -1457,7 +1543,7 @@ async function submitBatchMove() {
     await refreshInbox();
     notify(`已移动 ${moved} 个条目`);
   } catch (error) { batchMoveError.textContent = readableError(error); }
-  finally { submit.disabled = false; submit.textContent = '移动'; }
+  finally { submit.disabled = false; submit.textContent = '移动到项目'; }
 }
 
 async function resolveSelected() {
@@ -1484,7 +1570,7 @@ async function removeSelected() {
   }
   state.pendingBatchRemoval = false;
   await refreshInbox();
-  notify(failures.length ? `已移除 ${removed} 项，${failures.length} 项失败` : `已移除 ${removed} 项`);
+  notify(failures.length ? `已从收集中移除 ${removed} 项，${failures.length} 项失败` : `已从收集中移除 ${removed} 项`);
 }
 
 function updateDownloadPresetFields() {
@@ -1800,7 +1886,7 @@ async function importLinks() {
   } finally {
     linkImportInProgress = false;
     importButton.removeAttribute('aria-busy');
-    importButton.textContent = '加入收集箱';
+    importButton.textContent = '加入收集';
     dialogClose.disabled = false;
     dialogCancel.disabled = false;
     urlInput.disabled = false;
@@ -1839,11 +1925,13 @@ document.addEventListener('click', async (event) => {
     state.libraryView = button.dataset.libraryView;
     state.librarySourceJob = null;
     state.libraryPage = 1;
+    selectedLibraryAssets.clear();
     render();
   } else if (button.dataset.openLibraryProject) {
     state.libraryView = 'assets';
     state.librarySourceJob = Number(button.dataset.openLibraryProject);
     state.libraryPage = 1;
+    selectedLibraryAssets.clear();
     render();
   } else if (button.dataset.openAssetPackage) {
     try { await invoke('open_asset_package', { jobId: Number(button.dataset.openAssetPackage) }); }
@@ -1852,14 +1940,19 @@ document.addEventListener('click', async (event) => {
     button.disabled = true;
     try {
       const result = await invoke('import_asset_package_to_editor', { editorId: state.editor?.id, jobId: Number(button.dataset.importPackageEditor) });
-      notify(`已将 ${result.importedCount} 个素材交给${result.editorName}`);
+      notify(`已导入 ${result.importedCount} 个素材到${result.editorName}`);
     } catch (error) { notify(readableError(error)); }
     finally { button.disabled = false; }
+  } else if (button.dataset.action === 'import-selected-library') {
+    await importSelectedLibraryAssets(button);
+  } else if (button.dataset.action === 'clear-library-selection') {
+    selectedLibraryAssets.clear();
+    render();
   } else if (button.dataset.importEditorId) {
     button.disabled = true;
     try {
       const result = await invoke('import_media_to_editor', { editorId: state.editor?.id, assetType: button.dataset.importEditorType, assetId: Number(button.dataset.importEditorId) });
-      notify(`已将素材交给${result.editorName}`);
+      notify(`已导入素材到${result.editorName}`);
     } catch (error) { notify(readableError(error)); }
     finally { button.disabled = false; }
   } else if (button.dataset.filter) {
@@ -1871,7 +1964,21 @@ document.addEventListener('click', async (event) => {
   } else if (button.dataset.taskFilter) {
     state.taskFilter = button.dataset.taskFilter;
     state.taskPage = 1;
+    state.pendingHistoryClear = false;
     render();
+  } else if (button.dataset.action === 'prepare-clear-task-history') {
+    state.pendingHistoryClear = true;
+    render();
+  } else if (button.dataset.action === 'cancel-clear-task-history') {
+    state.pendingHistoryClear = false;
+    render();
+  } else if (button.dataset.action === 'confirm-clear-task-history') {
+    taskHistoryClearedBefore = Math.floor(Date.now() / 1000);
+    localStorage.setItem(taskHistoryClearedBeforeKey, String(taskHistoryClearedBefore));
+    state.pendingHistoryClear = false;
+    state.taskPage = 1;
+    render();
+    notify('历史记录已清除，下载文件和素材未受影响');
   } else if (button.dataset.action === 'open-add') {
     openDialog();
   } else if (button.dataset.action === 'download-selected') {
@@ -2057,6 +2164,27 @@ document.addEventListener('click', async (event) => {
       else notify('尚未检测到扩展，请确认已在浏览器中加载并开启');
     } catch (error) { notify(readableError(error)); }
     finally { state.bridgeChecking = false; render(); }
+  } else if (button.dataset.action === 'check-app-update') {
+    state.updateChecking = true;
+    render();
+    try {
+      state.updateCheck = await invoke('check_app_update');
+      if (state.updateCheck?.status === 'available') notify(`发现 ClipCargo ${state.updateCheck.latestVersion}`);
+      else if (state.updateCheck?.status === 'current') notify('当前版本已是最新');
+      else if (state.updateCheck?.status === 'unpublished') notify('当前版本暂未发布公开版本');
+      else notify(state.updateCheck?.message || '版本检查失败');
+    } catch (error) {
+      state.updateCheck = { status: 'failed', message: readableError(error) };
+      notify(readableError(error));
+    } finally {
+      state.updateChecking = false;
+      render();
+    }
+  } else if (button.dataset.action === 'open-update-page') {
+    const releaseUrl = state.updateCheck?.releaseUrl;
+    if (!releaseUrl) return;
+    try { await invoke('open_external_url', { url: releaseUrl }); }
+    catch (error) { notify(readableError(error)); }
   } else if (button.dataset.inboxDetail) {
     openInboxDetail(Number(button.dataset.inboxDetail));
   } else if (button.dataset.resolve) {
@@ -2183,7 +2311,7 @@ document.addEventListener('click', async (event) => {
       await invoke('remove_inbox_item', { id: Number(button.dataset.confirmInboxRemove) });
       state.pendingInboxRemoval = null;
       await refreshInbox();
-      notify('条目已从收集箱移除');
+      notify('条目已从收集中移除');
     } catch (error) { notify(readableError(error)); }
   } else if (button.dataset.openSource) {
     try { await invoke('open_source_page', { id: Number(button.dataset.openSource) }); }
@@ -2229,6 +2357,18 @@ main.addEventListener('change', (event) => {
     if (event.target.checked) selectedInboxItems.add(id); else selectedInboxItems.delete(id);
     state.pendingBatchRemoval = false;
     render();
+  } else if (event.target.matches('[data-select-library]')) {
+    const key = event.target.dataset.selectLibrary;
+    if (event.target.checked) selectedLibraryAssets.add(key); else selectedLibraryAssets.delete(key);
+    render();
+  } else if (event.target.matches('[data-select-library-visible]')) {
+    const visibleAssets = libraryAssets().filter((item) => {
+      const key = libraryAssetKey(item);
+      return document.querySelector(`[data-select-library="${CSS.escape(key)}"]`) != null;
+    });
+    if (event.target.checked) visibleAssets.forEach((item) => selectedLibraryAssets.add(libraryAssetKey(item)));
+    else visibleAssets.forEach((item) => selectedLibraryAssets.delete(libraryAssetKey(item)));
+    render();
   } else if (event.target.matches('[data-select-visible]')) {
     const visibleIds = state.items.filter((item) => (state.filter === 'all' || item.status === state.filter)
       && (state.projectFilter === 'all' || item.projectName === state.projectFilter)).map((item) => item.id);
@@ -2243,6 +2383,7 @@ main.addEventListener('change', (event) => {
   else if (event.target.id === 'project-filter') { state.projectFilter = event.target.value; state.inboxPage = 1; state.pendingInboxRemoval = null; state.pendingBatchRemoval = false; render(); }
   else if (event.target.id === 'setting-theme') { preferences.theme = event.target.value; savePreferences(); }
   else if (event.target.id === 'setting-default-project') { preferences.defaultProject = event.target.value; savePreferences(); }
+  else if (event.target.id === 'setting-editor-target') { state.editorTarget = event.target.value || 'auto'; localStorage.setItem('clipcargo:editor-target', state.editorTarget); refreshEditorState().then(render); }
   else if (event.target.id === 'setting-download-concurrency') { preferences.downloadConcurrency = Number(event.target.value); savePreferences(); }
   else if (event.target.id === 'setting-download-preset') { preferences.downloadPreset = event.target.value; savePreferences(); render(); }
   else if (event.target.id === 'setting-download-quality') { preferences.downloadQuality = event.target.value; savePreferences(); }
