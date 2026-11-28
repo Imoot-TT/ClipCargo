@@ -4959,6 +4959,17 @@ fn concat_executable() -> Option<PathBuf> {
 const WINDOWS_EDITOR_IMPORT_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class ClipCargoWin32 {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+}
+"@
 $editorPath = [IO.Path]::GetFullPath($env:CLIPCARGO_EDITOR_EXE)
 $editorId = [string]$env:CLIPCARGO_EDITOR_ID
 $processName = [IO.Path]::GetFileNameWithoutExtension($editorPath)
@@ -4972,11 +4983,22 @@ if (-not $process) {
   }
 }
 if (-not $process) { Write-Output 'CLIPCARGO_EDITOR_NOT_READY'; exit 4 }
+[ClipCargoWin32]::ShowWindowAsync($process.MainWindowHandle, 9) | Out-Null
+[ClipCargoWin32]::SetForegroundWindow($process.MainWindowHandle) | Out-Null
 $shell = New-Object -ComObject WScript.Shell
-if (-not $shell.AppActivate($process.Id)) { Write-Output 'CLIPCARGO_EDITOR_NOT_READY'; exit 4 }
-Start-Sleep -Milliseconds 240
+$shell.AppActivate($process.Id) | Out-Null
+Start-Sleep -Milliseconds 300
 $shell.SendKeys('^i')
-Start-Sleep -Milliseconds 700
+$dialogReady = $false
+$sb = New-Object System.Text.StringBuilder 256
+for ($attempt = 0; $attempt -lt 20; $attempt++) {
+  Start-Sleep -Milliseconds 120
+  $fg = [ClipCargoWin32]::GetForegroundWindow()
+  $sb.Clear() | Out-Null
+  [ClipCargoWin32]::GetClassName($fg, $sb, $sb.Capacity) | Out-Null
+  if ($sb.ToString() -eq '#32770') { $dialogReady = $true; break }
+}
+if (-not $dialogReady) { Write-Output 'CLIPCARGO_DIALOG_NOT_OPEN'; exit 5 }
 $shell.SendKeys('%n')
 Start-Sleep -Milliseconds 120
 $selection = if ($paths.Count -eq 1) { $paths[0] } else { ($paths | ForEach-Object { '"' + ($_ -replace '"', '') + '"' }) -join ' ' }
@@ -4984,9 +5006,9 @@ $previousClipboard = [System.Windows.Forms.Clipboard]::GetDataObject()
 try {
   [System.Windows.Forms.Clipboard]::SetText($selection)
   $shell.SendKeys('^v')
-  Start-Sleep -Milliseconds 120
+  Start-Sleep -Milliseconds 140
   $shell.SendKeys('{ENTER}')
-  Start-Sleep -Milliseconds 280
+  Start-Sleep -Milliseconds 320
 } finally {
   if ($previousClipboard) { [System.Windows.Forms.Clipboard]::SetDataObject($previousClipboard, $true) }
 }
@@ -5020,9 +5042,15 @@ fn import_via_windows_editor_dialog(
         .output()
         .map_err(|error| format!("无法启动{}的导入窗口：{error}", editor.name))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.contains("CLIPCARGO_DIALOG_NOT_OPEN") {
+        return Err(format!(
+            "未检测到{}的文件导入弹窗，请先在{}中打开一个草稿编辑窗口后再试。",
+            editor.name, editor.name
+        ));
+    }
     if !output.status.success() || !stdout.contains("CLIPCARGO_IMPORT_OK") {
         return Err(format!(
-            "{}没有完成导入，请确认它的导入窗口仍然打开。",
+            "{}没有完成导入，请确认草稿编辑窗口已打开。",
             editor.name
         ));
     }
@@ -5180,7 +5208,11 @@ fn launch_editor_import(
     if media_paths.is_empty() {
         return Err(format!("没有可导入{}的媒体文件。", editor.name));
     }
-    if editor.id == "concat" || editor.integration == "file-dialog" {
+    if editor.id == "jianying-pro"
+        || editor.id == "capcut"
+        || editor.id == "concat"
+        || editor.integration == "file-dialog"
+    {
         return import_via_windows_editor_dialog(editor, media_paths, asset_count);
     }
     for path in media_paths {

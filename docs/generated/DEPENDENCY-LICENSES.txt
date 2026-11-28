@@ -1,5 +1,5 @@
 ClipCargo dependency license bundle
-Generated: 2026-11-27T04:05:08.686Z
+Generated: 2026-11-28T06:26:27.421Z
 Inputs: src-tauri/Cargo.lock, package-lock.json and installed locked package directories
 
 Packages: 481 (466 Cargo, 15 npm)

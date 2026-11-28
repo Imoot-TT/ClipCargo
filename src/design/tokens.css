@@ -1,12 +1,125 @@
-/* Shared visual tokens for the desktop shell and future views. */
+/* ClipCargo 2.0 semantic design tokens. */
 :root {
-  --surface-soft: light-dark(#f7f8fb, #1f2126);
-  --text-secondary: var(--muted);
+  color-scheme: light;
+  font-family: "Segoe UI Variable", "Microsoft YaHei UI", system-ui, sans-serif;
+  --cc-bg: #fafbfe;
+  --cc-sidebar: #f3f5f9;
+  --cc-surface: #ffffff;
+  --cc-surface-soft: #f7f8fc;
+  --cc-surface-hover: #eff1f7;
+  --cc-text: #1b1e27;
+  --cc-muted: #69707d;
+  --cc-border: #e4e7ee;
+  --cc-accent: #515fd4;
+  --cc-accent-2: #6f58e8;
+  --cc-accent-hover: #4351c2;
+  --cc-accent-soft: #eef0ff;
+  --cc-success: #27835c;
+  --cc-success-soft: #e8f6ef;
+  --cc-warning: #a86416;
+  --cc-warning-soft: #fff3df;
+  --cc-danger: #b43d4a;
+  --cc-danger-soft: #fdecef;
+  --cc-shadow: 0 1px 2px rgb(17 24 39 / 4%), 0 8px 24px rgb(17 24 39 / 5%);
+  --cc-shadow-float: 0 20px 60px rgb(15 17 25 / 18%);
+  --cc-gradient: linear-gradient(135deg, #515fd4, #6f58e8);
+  --cc-titlebar-height: 44px;
+  --cc-sidebar-width: 212px;
+  --cc-inspector-width: 324px;
+  --cc-studio-inspector-width: 296px;
+  --cc-control-height: 32px;
+  --cc-control-height-compact: 28px;
+  --cc-control-height-primary: 36px;
+  --cc-radius-badge: 6px;
+  --cc-radius-control: 8px;
+  --cc-radius-panel: 12px;
+  --cc-radius-overlay: 16px;
+  --cc-settings-nav-width: 184px;
+  --cc-font-ui: "Segoe UI Variable", "Microsoft YaHei UI", system-ui, sans-serif;
+  --cc-font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* Compatibility aliases keep all existing Phase 1 views operational. */
+  --bg: var(--cc-bg);
+  --sidebar: var(--cc-sidebar);
+  --surface: var(--cc-surface);
+  --surface-soft: var(--cc-surface-soft);
+  --surface-hover: var(--cc-surface-hover);
+  --text: var(--cc-text);
+  --text-secondary: var(--cc-muted);
+  --muted: var(--cc-muted);
+  --border: var(--cc-border);
+  --accent: var(--cc-accent);
+  --accent-hover: var(--cc-accent-hover);
+  --accent-soft: var(--cc-accent-soft);
+  --success: var(--cc-success);
+  --success-soft: var(--cc-success-soft);
+  --warning: var(--cc-warning);
+  --warning-soft: var(--cc-warning-soft);
+  --danger: var(--cc-danger);
+  --danger-soft: var(--cc-danger-soft);
+  --shadow: var(--cc-shadow);
+  --control-height: var(--cc-control-height);
+  --control-radius: var(--cc-radius-control);
+  --control-font-size: 12px;
+  --panel-radius: var(--cc-radius-panel);
+  --settings-nav-width: var(--cc-settings-nav-width);
   --icon-size-help: 14px;
   --icon-size-control: 16px;
   --icon-size-navigation: 18px;
   --icon-size-feature: 22px;
-  --control-radius: 8px;
-  --panel-radius: 12px;
-  --settings-nav-width: 184px;
+  --micro-border: color-mix(in srgb, var(--cc-border) 88%, transparent);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --cc-bg: #15161a;
+  --cc-sidebar: #1b1d22;
+  --cc-surface: #22242a;
+  --cc-surface-soft: #1d1f25;
+  --cc-surface-hover: #2a2d35;
+  --cc-text: #f2f3f5;
+  --cc-muted: #9da3af;
+  --cc-border: #32353f;
+  --cc-accent: #6675f0;
+  --cc-accent-2: #856ef7;
+  --cc-accent-hover: #5564dc;
+  --cc-accent-soft: rgb(102 117 240 / 16%);
+  --cc-success: #45b884;
+  --cc-success-soft: rgb(69 184 132 / 14%);
+  --cc-warning: #e5a94c;
+  --cc-warning-soft: rgb(229 169 76 / 15%);
+  --cc-danger: #e56b77;
+  --cc-danger-soft: rgb(229 107 119 / 15%);
+  --cc-shadow: 0 2px 6px rgb(0 0 0 / 25%), 0 12px 32px rgb(0 0 0 / 28%);
+  --cc-shadow-float: 0 24px 64px rgb(0 0 0 / 44%);
+  --cc-gradient: linear-gradient(135deg, #6675f0, #856ef7);
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    color-scheme: dark;
+    --cc-bg: #15161a;
+    --cc-sidebar: #1b1d22;
+    --cc-surface: #22242a;
+    --cc-surface-soft: #1d1f25;
+    --cc-surface-hover: #2a2d35;
+    --cc-text: #f2f3f5;
+    --cc-muted: #9da3af;
+    --cc-border: #32353f;
+    --cc-accent: #6675f0;
+    --cc-accent-2: #856ef7;
+    --cc-accent-hover: #5564dc;
+    --cc-accent-soft: rgb(102 117 240 / 16%);
+    --cc-success: #45b884;
+    --cc-success-soft: rgb(69 184 132 / 14%);
+    --cc-warning: #e5a94c;
+    --cc-warning-soft: rgb(229 169 76 / 15%);
+    --cc-danger: #e56b77;
+    --cc-danger-soft: rgb(229 107 119 / 15%);
+    --cc-shadow: 0 2px 6px rgb(0 0 0 / 25%), 0 12px 32px rgb(0 0 0 / 28%);
+    --cc-shadow-float: 0 24px 64px rgb(0 0 0 / 44%);
+    --cc-gradient: linear-gradient(135deg, #6675f0, #856ef7);
+  }
 }

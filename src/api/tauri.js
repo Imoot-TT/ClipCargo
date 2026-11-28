@@ -42,5 +42,36 @@
     }
   }
 
-  globalThis.ClipCargoTauri = Object.freeze({ invoke, openNativeFileDialog, setWindowTheme });
+  function currentWindow() {
+    return typeof tauriWindow?.getCurrentWindow === 'function'
+      ? tauriWindow.getCurrentWindow()
+      : null;
+  }
+
+  async function runWindowAction(action) {
+    const window = currentWindow();
+    if (!window || typeof window[action] !== 'function') return false;
+    await window[action]();
+    return true;
+  }
+
+  const minimizeWindow = () => runWindowAction('minimize');
+  const toggleMaximizeWindow = () => runWindowAction('toggleMaximize');
+  const closeWindow = () => runWindowAction('close');
+  const startWindowDragging = () => runWindowAction('startDragging');
+  async function isWindowMaximized() {
+    const window = currentWindow();
+    return typeof window?.isMaximized === 'function' ? window.isMaximized() : false;
+  }
+
+  globalThis.ClipCargoTauri = Object.freeze({
+    invoke,
+    openNativeFileDialog,
+    setWindowTheme,
+    minimizeWindow,
+    toggleMaximizeWindow,
+    closeWindow,
+    startWindowDragging,
+    isWindowMaximized,
+  });
 })();

@@ -8,25 +8,47 @@
   <script src="popup.js" defer></script>
 </head>
 <body>
-  <header class="popup-header"><div class="brand"><img class="mark" src="icons/32.png" alt=""><strong>ClipCargo</strong></div><span id="state-label" class="state-label" aria-live="polite">检查中</span></header>
+  <header class="popup-header">
+    <div class="brand">
+      <span class="logo-wrap"><img class="mark" src="icons/64.png" alt=""><span id="online-dot" class="online-dot" aria-hidden="true"></span></span>
+      <strong>ClipCargo</strong>
+    </div>
+    <span id="state-label" class="state-label" aria-live="polite">检查中</span>
+  </header>
   <main class="popup-main">
     <section class="page-context" aria-labelledby="page-title">
       <h1 id="page-title">正在读取…</h1>
+      <span id="page-host" class="page-host"></span>
     </section>
     <form id="capture-form" class="capture-form">
       <div class="project-row">
-        <div class="popup-input"><input id="project" list="projects-list" type="text" maxlength="50" value="未分类" placeholder="项目（默认：未分类）" aria-label="保存到项目"></div>
+        <div class="popup-input">
+          <input id="project" list="projects-list" type="text" maxlength="50" value="未分类" autocomplete="off" placeholder="选择或输入新项目…" aria-label="保存到项目">
+        </div>
         <datalist id="projects-list"></datalist>
+        <div id="project-chips" class="chip-wrap" aria-label="快捷项目"></div>
       </div>
-      <button id="capture" type="submit" disabled><img src="icons/download.svg" alt="">收进 ClipCargo</button>
+      <button id="capture" type="submit" disabled><img src="icons/download.svg" alt="">收入素材箱</button>
       <p id="message" class="message" role="status"></p>
       <p id="queue-status" class="queue-status" role="status" aria-live="polite" hidden></p>
     </form>
-    <section class="site-control" aria-labelledby="site-control-title">
-      <div class="site-control-head"><div class="site-control-title"><strong id="site-control-title">页面入口</strong><span id="site-state">检查中</span></div>
-      <div class="site-actions"><button id="site-toggle" class="secondary" type="button" disabled>启用</button><button id="inject-page" class="secondary" type="button" aria-label="重新显示入口" title="重新显示入口" disabled hidden>重显</button></div></div>
-      <p id="site-detail" class="site-detail" role="status" aria-live="polite" hidden></p>
-    </section>
   </main>
+  <footer class="popup-footer">
+    <div class="footer-bar">
+      <section class="site-control" aria-labelledby="site-control-title">
+        <div class="site-control-head">
+          <button id="site-toggle" class="switch-btn" type="button" role="switch" aria-checked="false" aria-labelledby="site-control-title" disabled>
+            <span class="sw-track" aria-hidden="true"></span>
+            <strong id="site-control-title">页面浮标</strong>
+          </button>
+          <span id="site-state" class="sr-only">检查中</span>
+          <button id="inject-page" class="secondary" type="button" aria-label="重新显示入口" title="重新显示入口" disabled hidden>重显</button>
+        </div>
+      </section>
+      <button id="recent-toggle" class="recent-btn" type="button" aria-expanded="false">最近 <span id="recent-count">(0)</span> ▾</button>
+    </div>
+    <p id="site-detail" class="site-detail" role="status" aria-live="polite" hidden></p>
+    <div id="recent-drawer" class="recent-drawer" hidden></div>
+  </footer>
 </body>
 </html>
