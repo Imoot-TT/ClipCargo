@@ -11,7 +11,7 @@ tauri-build = { version = "2.4", features = [] }
 
 [dependencies]
 base64 = "0.22"
-rusqlite = { version = "0.32", features = ["bundled", "backup"] }
+rusqlite = { version = "0.43", features = ["bundled", "backup"] }
 fs2 = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "system-proxy"] }
 serde = { version = "1", features = ["derive"] }
