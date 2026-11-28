@@ -17,6 +17,15 @@ if (bundledExtensionId !== 'dpogajmenckmdbpacaoilnhhdcjpbheb') throw new Error(`
 const app = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../src/index.html', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+const tokens = readFileSync(new URL('../src/design/tokens.css', import.meta.url), 'utf8');
+const workspace = readFileSync(new URL('../src/state/workspace.js', import.meta.url), 'utf8');
+const inboxView = readFileSync(new URL('../src/views/inbox.js', import.meta.url), 'utf8');
+const libraryView = readFileSync(new URL('../src/views/library.js', import.meta.url), 'utf8');
+const tasksView = readFileSync(new URL('../src/views/tasks.js', import.meta.url), 'utf8');
+const settingsView = readFileSync(new URL('../src/views/settings.js', import.meta.url), 'utf8');
+const studioView = readFileSync(new URL('../src/views/studio.js', import.meta.url), 'utf8');
+const drawer = readFileSync(new URL('../src/components/drawer.js', import.meta.url), 'utf8');
+const capability = JSON.parse(readFileSync(new URL('../src-tauri/capabilities/default.json', import.meta.url), 'utf8'));
 const rust = readFileSync(new URL('../src-tauri/src/main.rs', import.meta.url), 'utf8');
 const nativeHost = readFileSync(new URL('../src-tauri/src/bin/native_host.rs', import.meta.url), 'utf8');
 for (const match of app.matchAll(/icon\('([^']+)'/g)) {
@@ -27,15 +36,17 @@ if (!styles.includes('[hidden] { display: none !important; }')) throw new Error(
 for (const actionMenuMarker of ['function closeActionMenus(', "document.addEventListener('toggle'", "details.media-more[open]", '<summary class="icon-button" aria-label="更多操作" title="更多操作">']) {
   if (!app.includes(actionMenuMarker)) throw new Error(`Action menu behavior is incomplete: ${actionMenuMarker}`);
 }
-if (html.includes('class="topbar"') || html.includes('class="brand"') || html.includes('class="sidebar-bottom"')) throw new Error('Redundant in-app branding chrome returned');
+for (const shellMarker of ['app-titlebar', 'global-search-trigger', 'editor-status-pill', 'sidebar-project-tree', 'mini-task-capsule', 'extension-heartbeat', 'command-palette']) {
+  if (!html.includes(shellMarker)) throw new Error(`ClipCargo 2.0 shell is incomplete: ${shellMarker}`);
+}
 for (const source of [html, app]) {
   for (const match of source.matchAll(/<(?:button|summary)[^>]*class="[^"]*icon-button[^"]*"[^>]*>/g)) {
     if (!match[0].includes('aria-label=') || !match[0].includes('title=')) throw new Error(`Icon-only control lacks a label or hover title: ${match[0]}`);
   }
 }
 if (app.includes('<h2>窗口与任务</h2>') || app.includes('<summary>技术信息</summary>')) throw new Error('Non-actionable settings explanations returned');
-for (const marker of ['.workspace { height: 100%; min-height: 0;', '.nav-item { min-height: 40px;', '.button { min-height: 32px;', '.inbox-row { min-height: 66px;', '.setting-icon { display: none;']) {
-  if (!styles.includes(marker)) throw new Error(`Compact desktop density is incomplete: ${marker}`);
+for (const marker of ['grid-template-rows: var(--cc-titlebar-height)', 'grid-template-columns: var(--cc-sidebar-width)', 'height: 33px;', 'height: var(--cc-control-height)', 'min-height: 60px;', '.setting-icon { display: none;']) {
+  if (!styles.includes(marker)) throw new Error(`ClipCargo 2.0 desktop density is incomplete: ${marker}`);
 }
 if (!app.includes('compactComponentVersion') || !rust.includes('path_is_within_root')) throw new Error('Settings version cleanup or Windows media-path compatibility is incomplete');
 if (!app.includes("item.kind !== 'source'") || !rust.includes("library_hidden=1")) throw new Error('Retained source backups must stay out of the primary media grid');
@@ -48,7 +59,9 @@ for (const marker of ['function enhanceSelects(root = document)', "root.querySel
 for (const marker of ['max-height: calc(100vh - 32px)', 'textarea { width: 100%; min-height: 112px;', 'resize: none;', '@media (max-height: 600px)']) {
   if (!styles.includes(marker)) throw new Error(`Short-window modal protection is incomplete: ${marker}`);
 }
-if (!styles.includes('--muted: light-dark(#626873, #a8acb5)')) throw new Error('Muted text contrast regression');
+for (const tokenMarker of ['--cc-bg: #fafbfe', '--cc-sidebar: #f3f5f9', '--cc-accent: #515fd4', '--cc-bg: #15161a', '--cc-accent: #6675f0', '--cc-muted: #9da3af']) {
+  if (!tokens.includes(tokenMarker)) throw new Error(`ClipCargo 2.0 color token is missing: ${tokenMarker}`);
+}
 if (!app.includes('function readableError(error)') || app.includes('String(error)')) throw new Error('User-facing errors must not expose raw Error prefixes');
 for (const command of ['list_inbox', 'capture_page', 'remove_inbox_item', 'move_inbox_items', 'update_inbox_details', 'inspect_local_media', 'import_local_media', 'bridge_status', 'open_components_directory', 'set_components_directory', 'open_extension_directory', 'open_extension_store']) {
   if (!app.includes(`'${command}'`)) throw new Error(`Frontend does not call ${command}`);
@@ -81,8 +94,26 @@ if (!app.includes('for (const id of ids)')) throw new Error('Batch download does
 for (const batchAction of ['resolve-selected', 'move-selected', 'remove-selected', 'download-selected']) {
   if (!app.includes(batchAction)) throw new Error(`Inbox batch action is missing: ${batchAction}`);
 }
-for (const linkImportMarker of ['linkImportInProgress', "importButton.setAttribute('aria-busy', 'true')", '正在加入 ${index + 1}/${analysis.valid.length}', 'dialogClose.disabled = true', 'urlInput.disabled = true', 'if (linkImportInProgress) return']) {
+for (const linkImportMarker of ['linkImportInProgress', "drawerButton.setAttribute('aria-busy', 'true')", '正在加入 ${index + 1}/${analysis.valid.length}', 'drawerInput.disabled = true', 'drawerProject.disabled = true', 'if (linkImportInProgress) return']) {
   if (!app.includes(linkImportMarker)) throw new Error(`Link import submission locking is incomplete: ${linkImportMarker}`);
+}
+
+for (const marker of ['./state/workspace.js', './components/drawer.js', './views/inbox.js', './views/library.js', './views/tasks.js', './views/settings.js', './views/studio.js']) {
+  if (!html.includes(marker)) throw new Error(`Phase 2 module is not loaded: ${marker}`);
+}
+for (const [source, label, markers] of [
+  [inboxView, 'Inbox', ['inbox-workbench', 'data-action="download-inspector"', 'data-action="download-selected"', 'data-action="open-local-drawer"']],
+  [libraryView, 'Library', ['素材包', '全部文件', '分镜故事板', 'data-confirm-persistent="true"', 'subtitle-search']],
+  [tasksView, 'Tasks', ['进行中', '需处理', '已完成历史', '四阶段下载进度']],
+  [settingsView, 'Settings', ['通用', '下载', '工具与存储', '扩展与登录态', '快捷键', '版本', '关于']],
+]) {
+  for (const marker of markers) if (!source.includes(marker)) throw new Error(`${label} Phase 2 marker is missing: ${marker}`);
+}
+for (const marker of ['shouldDeferRefresh', 'data-confirm-persistent="true"', 'ui.drawer.open', 'captureInteraction', 'restoreInteraction', 'patchLiveData']) {
+  if (!workspace.includes(marker)) throw new Error(`Polling interaction preservation is incomplete: ${marker}`);
+}
+for (const marker of ['workspace-drawer', 'aria-modal="true"', 'data-drawer-close', 'ClipCargoWorkspace?.openDrawer']) {
+  if (!drawer.includes(marker)) throw new Error(`Persistent drawer behavior is incomplete: ${marker}`);
 }
 for (const paginationMarker of ['INBOX_PAGE_SIZE = 50', 'TASK_PAGE_SIZE = 50', 'LIBRARY_PAGE_SIZE = 48', 'data-page-scope', "pagination('tasks'", 'pageAssets', '选择筛选结果', 'librarySearchTimer', 'jobsByItemId']) {
   if (!app.includes(paginationMarker)) throw new Error(`Large-data pagination is incomplete: ${paginationMarker}`);
@@ -173,6 +204,15 @@ for (const downloadLocationMarker of ['chooseDownloadDirectory', "invoke('set_do
 }
 
 const config = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+const mainWindow = config.app.windows.find((window) => window.label === 'main');
+if (!mainWindow || mainWindow.width !== 1060 || mainWindow.height !== 680 || mainWindow.minWidth !== 920 || mainWindow.minHeight !== 580) throw new Error('ClipCargo 2.0 window size contract regressed');
+if (mainWindow.decorations !== false || mainWindow.resizable !== true) throw new Error('The integrated titlebar requires a resizable undecorated window');
+for (const permission of ['core:window:allow-start-dragging', 'core:window:allow-minimize', 'core:window:allow-toggle-maximize', 'core:window:allow-is-maximized', 'core:window:allow-close']) {
+  if (!capability.permissions.includes(permission)) throw new Error(`Missing integrated-titlebar permission: ${permission}`);
+}
+for (const marker of ['minimizeWindow', 'toggleMaximizeWindow', 'closeWindow', 'startWindowDragging']) {
+  if (!app.includes(marker) && !readFileSync(new URL('../src/api/tauri.js', import.meta.url), 'utf8').includes(marker)) throw new Error(`Integrated titlebar action is missing: ${marker}`);
+}
 if (config.build.removeUnusedCommands !== true) throw new Error('Unused Tauri commands must be removed');
 if (config.bundle.windows.webviewInstallMode.type !== 'downloadBootstrapper') throw new Error('Unexpected WebView2 install mode');
 if (!config.bundle.externalBin?.includes('binaries/clipcargo-native-host')) throw new Error('Native Host is not bundled as a Tauri sidecar');
@@ -190,7 +230,7 @@ for (const bridgeUiMarker of ["isStoreExtension", '开发测试版', '打开本�
 for (const bridgeInteractionMarker of ['bridgeChecking', 'aria-busy="true"', 'setTimeout(resolve, 2000)']) {
   if (!app.includes(bridgeInteractionMarker)) throw new Error(`Browser bridge loading interaction is incomplete: ${bridgeInteractionMarker}`);
 }
-for (const compactSettingsMarker of ['.button[aria-busy="true"] .ui-icon', '.settings-grid { gap: 8px; }', 'white-space: nowrap']) {
+for (const compactSettingsMarker of ['.button[aria-busy="true"] .ui-icon', '.settings-layout { max-width: none;', '.setting-card { min-height: 0;', 'white-space: nowrap']) {
   if (!styles.includes(compactSettingsMarker)) throw new Error(`Compact settings layout is incomplete: ${compactSettingsMarker}`);
 }
 
@@ -307,8 +347,15 @@ for (const marker of ['function validateClipInputs', 'valueAsNumber', 'clip-star
 for (const processingUiMarker of ["['queued', 'processing'].includes(result.status)", '处理任务已加入队列', 'blockedByCapabilities']) {
   if (!app.includes(processingUiMarker)) throw new Error(`Processing submission UI is incomplete: ${processingUiMarker}`);
 }
-for (const processingWorkspaceMarker of ['process-tool-groups', 'data-process-mode="rotate-left"', 'data-process-mode="rotate-right"', 'data-process-mode="mute"', 'data-process-mode="speed-2x"', 'data-process-mode="compress"', 'selectProcessMode', 'transpose=2', 'transpose=1', 'setpts=0.5*PTS', 'atempo=2.0', 'force_original_aspect_ratio=decrease']) {
-  if (!`${html}\n${app}\n${styles}\n${rust}`.includes(processingWorkspaceMarker)) throw new Error(`Expanded processing workspace is incomplete: ${processingWorkspaceMarker}`);
+for (const processingWorkspaceMarker of ['data-studio-mode="${id}"', "['rotate-left'", "['rotate-right'", "['mute'", "['speed-2x'", "['compress'", 'studio-crop-frame', 'cropPositionX', 'cropPositionY', 'cropScale', 'transpose=2', 'transpose=1', 'setpts=0.5*PTS', 'atempo=2.0', 'force_original_aspect_ratio=decrease']) {
+  if (!`${studioView}\n${app}\n${styles}\n${rust}`.includes(processingWorkspaceMarker)) throw new Error(`Studio processing workspace is incomplete: ${processingWorkspaceMarker}`);
+}
+for (const marker of ['id="studio-video"', 'id="studio-timeline"', 'data-timeline-handle="in"', 'data-timeline-handle="out"', "key === 'i'", "key === 'o'", "key === 'm'", "event.key === 'ArrowLeft'", "event.key === 'ArrowRight'", 'get_media_path', 'get_media_subtitles', 'open_media_external', 'pendingAutoImports', 'import_media_to_editor']) {
+  if (!`${studioView}\n${app}\n${workspace}`.includes(marker)) throw new Error(`Studio playback or workflow marker is missing: ${marker}`);
+}
+if (html.includes('id="player-backdrop"') || html.includes('id="process-backdrop"')) throw new Error('Legacy player/process modal DOM must be removed after Studio migration');
+for (const obsoleteStyle of ['.player-dialog', '.process-dialog', '.process-tool-groups', '.crop-mask {']) {
+  if (styles.includes(obsoleteStyle)) throw new Error(`Legacy Studio modal style remains: ${obsoleteStyle}`);
 }
 for (const playerFallbackMarker of ['player-convert', '生成兼容副本', '兼容副本已加入队列', "activePlayerAsset?.assetType === 'original'"]) {
   if (!`${html}\n${app}`.includes(playerFallbackMarker)) throw new Error(`Player compatibility fallback is incomplete: ${playerFallbackMarker}`);
@@ -353,7 +400,7 @@ if (app.includes('title="${escapeHtml(item.errorMessage)}"') || app.includes('<d
 for (const friendlyErrorMarker of ['当前浏览器会话不可用', "classifyTaskError(item.errorMessage, 'download', item.errorCode).action", "PROCESS_FAILED: kind === 'processing'"]) {
   if (!app.includes(friendlyErrorMarker)) throw new Error(`Friendly task error presentation is incomplete: ${friendlyErrorMarker}`);
 }
-if (!styles.includes('.toast { position: fixed; z-index: 80; top: 12px; left: 50%;') || !styles.includes('background: color-mix(in srgb, var(--surface) 96%, transparent)')) throw new Error('Toast must use the compact light top-center treatment');
+if (!styles.includes('.toast {') || !styles.includes('top: 52px; right: 16px; left: auto; bottom: auto;') || !html.includes('id="toast-action"')) throw new Error('Toast must use the ClipCargo 2.0 top-right lightweight treatment');
 for (const browserAuthMarker of ["invoke('open_source_login'", "invoke('finish_source_login'", '需要登录的视频', '--cookies-from-browser', 'browser_has_authenticated_cookie', 'BROWSER_DEFINITIONS', '没有检测到有效的登录会话']) {
   if (!`${app}\n${rust}`.includes(browserAuthMarker)) throw new Error(`Browser session login flow is incomplete: ${browserAuthMarker}`);
 }
@@ -415,7 +462,7 @@ for (const redundantHeading of ["heading('收集箱'", "heading('任务'", "head
 for (const marker of ['page-toolbar', 'inbox-table-head', 'inbox-title-cell', 'inbox-status-cell']) {
   if (!app.includes(marker)) throw new Error(`Compact inbox information architecture is incomplete: ${marker}`);
 }
-for (const marker of ['/* 2026 visual system — compact content workspace */', '.inbox-row:last-child', '.page-toolbar', '.tabs { width: max-content']) {
+for (const marker of ['/* ClipCargo 2.0 Phase 1 — consolidated desktop shell and view compatibility. */', '.inbox-row:last-child', '.page-toolbar', '.tabs { width: max-content', '.command-palette-backdrop']) {
   if (!styles.includes(marker)) throw new Error(`Selected visual system is incomplete: ${marker}`);
 }
 for (const marker of ['fn external_tool_start_error', 'raw_os_error() == Some(4551)', 'Windows 智能应用控制', 'explains_windows_smart_app_control_blocks']) {

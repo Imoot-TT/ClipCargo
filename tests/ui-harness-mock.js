@@ -1,3 +1,11 @@
+const harnessParams = new URLSearchParams(location.search);
+if (harnessParams.has('studio')) localStorage.setItem('clipcargo:last-view', 'studio');
+if (harnessParams.has('theme')) {
+  const storedPreferences = JSON.parse(localStorage.getItem('clipcargo:preferences') || '{}');
+  storedPreferences.theme = harnessParams.get('theme');
+  localStorage.setItem('clipcargo:preferences', JSON.stringify(storedPreferences));
+}
+
 const harnessState = {
   items: [
     { id: 101, pageUrl: 'https://example.com/ready', title: '已识别演示视频', originalTitle: '平台原始标题', sourceHost: 'example.com', sourceId: 'demo-101', projectName: '未分类', status: 'ready', captureMethod: 'paste', createdAt: 1794210000, resolvedAt: 1794210060, durationSeconds: 42, thumbnailUrl: null, errorMessage: null, hasVideo: true, hasAudio: !new URLSearchParams(location.search).has('no-audio'), maxHeight: 720, availableHeights: [720, 480, 360], compatibleMp4: false, estimatedBytes: 26_214_400, subtitleOptions: [{ language: 'zh-Hans', automatic: false }, { language: 'en', automatic: true }] },
@@ -71,6 +79,18 @@ if (largeDataValue !== null) {
 
 window.__clipcargoHarness = harnessState;
 window.__TAURI__ = {
+  window: {
+    getCurrentWindow() {
+      return {
+        async setTheme(theme) { document.documentElement.dataset.harnessWindowTheme = theme || 'system'; },
+        async minimize() { document.documentElement.dataset.harnessWindowAction = 'minimize'; },
+        async toggleMaximize() { document.documentElement.dataset.harnessWindowAction = 'toggle-maximize'; },
+        async close() { document.documentElement.dataset.harnessWindowAction = 'close'; },
+        async startDragging() { document.documentElement.dataset.harnessWindowAction = 'start-dragging'; },
+        async isMaximized() { return false; },
+      };
+    },
+  },
   dialog: {
     open: async ({ multiple, directory }) => directory ? 'D:\\ClipCargo 下载' : multiple ? ['C:\\Videos\\本地样片.mp4'] : 'C:\\Videos\\已找回的素材.mp4',
   },
@@ -240,6 +260,7 @@ window.__TAURI__ = {
         job.status = 'failed'; job.errorMessage = '下载已停止；已保留可用断点。'; job.errorCode = 'CANCELLED_BY_USER'; return null;
       }
       if (command === 'process_media') {
+        document.documentElement.dataset.lastProcessInvoke = JSON.stringify(args.input);
         if (new URLSearchParams(location.search).has('process-no-audio') && args.input?.mode === 'audio') {
           throw new Error('该素材没有音频轨，无法提取 MP3。');
         }

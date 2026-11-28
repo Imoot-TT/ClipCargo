@@ -1,4 +1,5 @@
 const title = document.querySelector('#page-title');
+const pageHostEl = document.querySelector('#page-host');
 const button = document.querySelector('#capture');
 const message = document.querySelector('#message');
 const queueStatus = document.querySelector('#queue-status');
@@ -12,6 +13,62 @@ const siteState = document.querySelector('#site-state');
 const siteDetail = document.querySelector('#site-detail');
 const siteControl = document.querySelector('.site-control');
 const projectsList = document.querySelector('#projects-list');
+const projectChips = document.querySelector('#project-chips');
+const onlineDot = document.querySelector('#online-dot');
+const recentToggle = document.querySelector('#recent-toggle');
+const recentCountEl = document.querySelector('#recent-count');
+const recentDrawer = document.querySelector('#recent-drawer');
+const CHIP_COLORS = ['#94a3b8', '#0ea5e9', '#8b5cf6', '#ef4444', '#10b981', '#f59e0b'];
+
+function renderRecentCaptures(items = []) {
+  if (!recentDrawer || !recentCountEl) return;
+  const list = Array.isArray(items) ? items.slice(0, 5) : [];
+  recentCountEl.textContent = `(${list.length})`;
+  recentDrawer.innerHTML = list.length
+    ? list.map((entry) => {
+      const safeTitle = String(entry.title || '未命名页面').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      const queued = Boolean(entry.queued);
+      return `<div class="recent-row"><span title="${safeTitle}">${safeTitle}</span><em class="${queued ? 'queued' : ''}">${queued ? '待同步' : '已送达'}</em></div>`;
+    }).join('')
+    : '<div class="recent-empty">暂无最近记录</div>';
+}
+
+if (recentToggle && recentDrawer) {
+  recentToggle.addEventListener('click', () => {
+    const opening = recentDrawer.hidden;
+    recentDrawer.hidden = !opening;
+    recentToggle.setAttribute('aria-expanded', String(opening));
+    recentToggle.lastChild.textContent = opening ? ' ▴' : ' ▾';
+  });
+}
+
+function renderProjectChips(names) {
+  if (!projectChips) return;
+  const list = [...new Set(['未分类', ...names.filter((v) => typeof v === 'string' && v.trim())])].slice(0, 6);
+  if (list.length <= 1) {
+    projectChips.innerHTML = '';
+    return;
+  }
+  projectChips.innerHTML = list.map((name, idx) => {
+    const safe = name.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const active = project.value.trim() === name ? ' active' : '';
+    return `<button type="button" class="chip${active}" data-chip-proj="${safe}"><i style="background:${CHIP_COLORS[idx % CHIP_COLORS.length]}"></i>${safe}</button>`;
+  }).join('');
+}
+
+if (projectChips) {
+  projectChips.addEventListener('click', (event) => {
+    const chip = event.target.closest('[data-chip-proj]');
+    if (!chip) return;
+    project.value = chip.dataset.chipProj;
+    projectChips.querySelectorAll('.chip').forEach((el) => el.classList.toggle('active', el === chip));
+  });
+}
+project.addEventListener('input', () => {
+  if (!projectChips) return;
+  const current = project.value.trim();
+  projectChips.querySelectorAll('.chip').forEach((el) => el.classList.toggle('active', el.dataset.chipProj === current));
+});
 const BUILT_IN_SITES = new Set(['youtube.com', 'xiaohongshu.com', 'douyin.com', 'tiktok.com', 'bilibili.com', 'x.com', 'twitter.com', 'instagram.com', 'facebook.com', 'vimeo.com', 'dailymotion.com', 'twitch.tv']);
 let currentHost = '';
 
@@ -22,6 +79,7 @@ async function refreshQueueStatus() {
     queueStatus.hidden = queue.length === 0;
     queueStatus.textContent = queue.length ? `桌面端离线，${queue.length} 条链接已安全暂存，连接恢复后自动发送。` : '';
     queueStatus.className = queue.length ? 'queue-status queued' : 'queue-status';
+    if (onlineDot) onlineDot.classList.toggle('queued', queue.length > 0);
   } catch {
     queueStatus.hidden = true;
   }
@@ -38,7 +96,8 @@ async function siteConfiguration() {
   const disabled = Array.isArray(stored.disabledMediaSites) ? stored.disabledMediaSites : [];
   const enabled = BUILT_IN_SITES.has(currentHost) ? !disabled.includes(currentHost) : custom.includes(currentHost);
   siteState.textContent = enabled ? '已启用' : '未启用';
-  siteToggle.textContent = enabled ? '停用' : '启用';
+  siteToggle.setAttribute('aria-checked', String(enabled));
+  siteToggle.title = enabled ? '停用当前站点浮标' : '启用当前站点浮标';
   siteToggle.classList.toggle('enabled', enabled);
   siteToggle.dataset.enabled = String(enabled);
   siteToggle.disabled = false;
@@ -79,7 +138,7 @@ function showInjectionState(result) {
     siteDetail.className = 'site-detail ok';
     siteDetail.hidden = true;
     injectPage.hidden = true;
-    siteControl.hidden = true;
+    siteControl.hidden = false;
     return;
   }
   siteControl.hidden = false;
@@ -98,6 +157,7 @@ chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
   title.textContent = tab?.title || '未命名页面';
   title.title = title.textContent;
   currentHost = siteKey(tab?.url || '');
+  if (pageHostEl) pageHostEl.textContent = currentHost || '';
   button.disabled = !supported(tab?.url);
   if (button.disabled) {
     siteControl.hidden = true;
@@ -173,10 +233,12 @@ injectPage.addEventListener('click', async () => {
   showInjectionState(await injectCurrentPage());
 });
 
-chrome.storage.local.get(['lastProject', 'recentProjects']).then((stored) => {
+chrome.storage.local.get(['lastProject', 'recentProjects', 'recentCaptures']).then((stored) => {
   const recent = Array.isArray(stored.recentProjects) ? stored.recentProjects.filter((value) => typeof value === 'string' && value.trim()).slice(0, 8) : [];
-  projectsList.innerHTML = [...new Set(recent)].map((value) => `<option value="${value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"></option>`).join('');
+  if (projectsList) projectsList.innerHTML = '';
   if (typeof stored.lastProject === 'string' && stored.lastProject.trim()) project.value = stored.lastProject.slice(0, 50);
+  renderProjectChips(recent);
+  renderRecentCaptures(stored.recentCaptures || []);
 });
 refreshQueueStatus();
 
@@ -208,7 +270,13 @@ form.addEventListener('submit', async (event) => {
     const queued = Boolean(response.value?.queued);
     stateLabel.className = `state-label ${queued ? 'queued' : 'ready'}`;
     stateLabel.textContent = queued ? '已暂存' : '已送达';
-    button.textContent = queued ? '已暂存，等待桌面端' : '已收进 ClipCargo';
+    button.textContent = queued ? '已暂存待同步' : '已收入素材箱';
+    button.classList.toggle('done', !queued);
+    renderProjectChips(recentProjects);
+    const prevCaptures = await chrome.storage.local.get('recentCaptures').then((s) => (Array.isArray(s.recentCaptures) ? s.recentCaptures : [])).catch(() => []);
+    const nextCaptures = [{ title: currentTab.title || currentHost || currentTab.url, projectName, queued }, ...prevCaptures].slice(0, 5);
+    await chrome.storage.local.set({ recentCaptures: nextCaptures }).catch(() => {});
+    renderRecentCaptures(nextCaptures);
     message.textContent = queued ? '桌面端未连接；链接已保存在扩展中，下次连接会自动发送。' : '页面链接已写入 ClipCargo。';
     message.className = `message ${queued ? 'queued' : 'ready'}`;
     refreshQueueStatus();

@@ -6,7 +6,8 @@
       id: `download:${job.id}`, sourceId: job.id, kind: 'download', title: job.title,
       status: job.status, stage: job.stage || 'queued',
       progress: Number.isFinite(job.progressPercent) ? job.progressPercent : null,
-      error: job.errorMessage || null, updatedAt: job.updatedAt, output: job.filePath || null,
+      error: job.errorMessage || null, errorMessage: job.errorMessage || null, errorCode: job.errorCode || null,
+      updatedAt: job.updatedAt, output: job.filePath || null,
     };
   }
 
@@ -15,7 +16,8 @@
       id: `processing:${derivative.id}`, sourceId: derivative.id, kind: 'processing', title: derivative.title,
       status: derivative.status, stage: derivative.kind || 'processing',
       progress: Number.isFinite(derivative.progressPercent) ? derivative.progressPercent : null,
-      error: derivative.errorMessage || null, updatedAt: derivative.updatedAt, output: derivative.filePath || null,
+      error: derivative.errorMessage || null, errorMessage: derivative.errorMessage || null, errorCode: derivative.errorCode || null,
+      updatedAt: derivative.updatedAt, output: derivative.filePath || null,
     };
   }
 

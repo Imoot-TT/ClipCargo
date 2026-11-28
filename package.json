@@ -1,6 +1,6 @@
 {
   "name": "clipcargo",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "private": true,
   "description": "ClipCargo desktop workspace",
   "license": "UNLICENSED",
@@ -9,7 +9,7 @@
     "build": "tauri build --no-bundle",
     "bundle:win": "tauri build --bundles nsis",
     "check": "npm run check:source && cargo test --manifest-path src-tauri/Cargo.toml",
-    "check:source": "node --check src/app.js && node --check src/api/tauri.js && node --check src/components/tooltip.js && node --check src/state/jobs.js && node --check src/link-utils.js && node --check extension/background.js && node --check extension/popup.js && node --check extension/content.js && node --check tests/ui-harness-mock.js && node --check tests/extension-popup-mock.js && node --check tests/extension-content-mock.js && node --check tests/x-content-mock.js && node --check tests/ui-harness-server.mjs && node --check tests/qa-screenshot-receiver.mjs && node tests/verify-static.mjs && node tests/link-analysis-smoke.mjs && node tests/extension-queue-smoke.mjs && node tests/command-contract-smoke.mjs",
+    "check:source": "node --check src/app.js && node --check src/api/tauri.js && node --check src/components/tooltip.js && node --check src/components/view-tabs.js && node --check src/components/selection-bar.js && node --check src/components/inspector.js && node --check src/components/confirm-panel.js && node --check src/components/drawer.js && node --check src/state/jobs.js && node --check src/state/workspace.js && node --check src/views/inbox.js && node --check src/views/library.js && node --check src/views/tasks.js && node --check src/views/settings.js && node --check src/views/studio.js && node --check src/link-utils.js && node --check extension/background.js && node --check extension/popup.js && node --check extension/content.js && node --check tests/ui-harness-mock.js && node --check tests/extension-popup-mock.js && node --check tests/extension-content-mock.js && node --check tests/x-content-mock.js && node --check tests/ui-harness-server.mjs && node --check tests/qa-screenshot-receiver.mjs && node tests/verify-static.mjs && node tests/workspace-state-smoke.mjs && node tests/studio-state-smoke.mjs && node tests/link-analysis-smoke.mjs && node tests/extension-queue-smoke.mjs && node tests/command-contract-smoke.mjs",
     "check:native-host": "node tests/native-host-smoke.mjs",
     "test:ui-harness": "node tests/ui-harness-server.mjs",
     "package:extension": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1",

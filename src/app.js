@@ -1,6 +1,10 @@
 const invoke = window.ClipCargoTauri?.invoke;
 const openNativeFileDialog = window.ClipCargoTauri?.openNativeFileDialog;
 const setWindowTheme = window.ClipCargoTauri?.setWindowTheme;
+const minimizeWindow = window.ClipCargoTauri?.minimizeWindow;
+const toggleMaximizeWindow = window.ClipCargoTauri?.toggleMaximizeWindow;
+const closeWindow = window.ClipCargoTauri?.closeWindow;
+const startWindowDragging = window.ClipCargoTauri?.startWindowDragging;
 const mediaFileFilters = [{
   name: '媒体文件',
   extensions: ['mp4', 'mov', 'mkv', 'webm', 'm4v', 'avi', 'mp3', 'm4a', 'wav', 'flac'],
@@ -46,6 +50,18 @@ function clearButtonBusy(button) {
 const main = document.querySelector('#main');
 const count = document.querySelector('#inbox-count');
 const taskCount = document.querySelector('#task-count');
+const libraryCount = document.querySelector('#library-count');
+const sidebarProjectTree = document.querySelector('#sidebar-project-tree');
+const miniTaskLabel = document.querySelector('#mini-task-label');
+const miniTaskSpeed = document.querySelector('#mini-task-speed');
+const miniTaskProgress = document.querySelector('#mini-task-progress');
+const extensionHeartbeat = document.querySelector('#extension-heartbeat');
+const extensionHeartbeatText = document.querySelector('#extension-heartbeat-text');
+const editorStatusPill = document.querySelector('#editor-status-pill');
+const editorStatusText = document.querySelector('#editor-status-text');
+const commandPalette = document.querySelector('#command-palette');
+const commandPaletteInput = document.querySelector('#command-palette-input');
+const commandPaletteResults = document.querySelector('#command-palette-results');
 const backdrop = document.querySelector('#dialog-backdrop');
 const urlInput = document.querySelector('#url-input');
 const urlSummary = document.querySelector('#url-summary');
@@ -62,6 +78,8 @@ const projectList = document.querySelector('#project-list');
 const projectError = document.querySelector('#project-error');
 const newProjectName = document.querySelector('#new-project-name');
 const toast = document.querySelector('#toast');
+const toastMessage = document.querySelector('#toast-message');
+const toastAction = document.querySelector('#toast-action');
 const playerBackdrop = document.querySelector('#player-backdrop');
 const mediaPlayer = document.querySelector('#media-player');
 const playerTitle = document.querySelector('#player-title');
@@ -166,10 +184,12 @@ const savedEditorTarget = localStorage.getItem('clipcargo:editor-target') || 'au
 const taskHistoryClearedBeforeKey = 'clipcargo:task-history-cleared-before';
 let taskHistoryClearedBefore = Number(localStorage.getItem(taskHistoryClearedBeforeKey) || 0);
 if (!Number.isFinite(taskHistoryClearedBefore) || taskHistoryClearedBefore < 0) taskHistoryClearedBefore = 0;
-const state = { view: ['inbox', 'tasks', 'library', 'browser'].includes(savedView) ? savedView : 'inbox', settingsSection: ['general', 'download', 'extension', 'tools', 'shortcuts', 'version', 'about'].includes(savedSettingsSection) ? savedSettingsSection : 'general', items: [], jobs: [], derivatives: [], projects: [{ name: '未分类', isSystem: true, itemCount: 0 }], filter: 'all', projectFilter: 'all', inboxPage: 1, taskFilter: 'active', taskPage: 1, libraryView: 'projects', librarySourceJob: null, libraryQuery: '', librarySort: 'newest', libraryProject: 'all', libraryKind: 'all', libraryPage: 1, editor: null, editors: [], editorTarget: savedEditorTarget, bridge: null, components: null, appInfo: null, updateCheck: null, updateChecking: false, authConfigured: false, authBrowser: null, authBrowsers: [], authBrowserChoice: null, authLoginOpen: false, authLoginError: '', authRetryJobId: null, bridgeChecking: false, loading: true, editingProject: null, pendingProjectDelete: null, pendingLibraryRemoval: null, pendingLibraryImpact: null, pendingInboxRemoval: null, pendingBatchRemoval: false, pendingHistoryClear: false, pendingComponentRemoval: null, relinkTarget: null };
+const state = { view: ['inbox', 'tasks', 'library', 'studio', 'browser'].includes(savedView) ? savedView : 'inbox', settingsSection: ['general', 'download', 'extension', 'tools', 'shortcuts', 'version', 'about'].includes(savedSettingsSection) ? savedSettingsSection : 'general', workspaceProject: 'all', items: [], jobs: [], derivatives: [], projects: [{ name: '未分类', isSystem: true, itemCount: 0 }], filter: 'all', projectFilter: 'all', inboxPage: 1, taskFilter: 'active', taskPage: 1, libraryView: 'packages', librarySourceJob: null, libraryQuery: '', librarySort: 'newest', libraryProject: 'all', libraryKind: 'all', libraryPage: 1, editor: null, editors: [], editorTarget: savedEditorTarget, bridge: null, components: null, appInfo: null, updateCheck: null, updateChecking: false, authConfigured: false, authBrowser: null, authBrowsers: [], authBrowserChoice: null, authLoginOpen: false, authLoginError: '', authRetryJobId: null, bridgeChecking: false, loading: true, editingProject: null, pendingProjectDelete: null, pendingLibraryRemoval: null, pendingLibraryImpact: null, pendingInboxRemoval: null, pendingBatchRemoval: false, pendingHistoryClear: false, pendingComponentRemoval: null, pendingComponentInstallKind: null, relinkTarget: null };
 let toastTimer;
 let librarySearchTimer;
 let projectActiveIndex = -1;
+let commandPaletteItems = [];
+let commandPaletteActiveIndex = 0;
 
 const INBOX_PAGE_SIZE = 50;
 const TASK_PAGE_SIZE = 50;
@@ -297,8 +317,16 @@ function isFailedTask(item) {
     && (item?.status === 'failed' || Boolean(item?.errorMessage && item.status !== 'completed'));
 }
 
-function notify(message, duration = 5000) {
-  toast.textContent = message;
+function notify(message, duration = 5000, actionLabel = '', action = null) {
+  toastMessage.textContent = message;
+  toastAction.hidden = !(actionLabel && typeof action === 'function');
+  if (!toastAction.hidden) {
+    toastAction.textContent = actionLabel;
+    toastAction.onclick = () => { toast.hidden = true; action(); };
+  } else {
+    toastAction.textContent = '';
+    toastAction.onclick = null;
+  }
   toast.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { toast.hidden = true; }, duration);
@@ -543,12 +571,12 @@ function inboxErrorLabel(message, persistedCode = '') {
   return labels[error.code] || '识别未完成，请重试。';
 }
 
-function analyzeLinks(projectName = projectInput.value.trim() || '未分类') {
-  const inputPresent = Boolean(urlInput.value.trim());
-  const lines = globalThis.ClipCargoLinkUtils.extractHttpUrls(urlInput.value);
+function analyzeLinks(projectName = projectInput.value.trim() || '未分类', inputValue = urlInput.value) {
+  const inputPresent = Boolean(String(inputValue || '').trim());
+  const lines = globalThis.ClipCargoLinkUtils.extractHttpUrls(String(inputValue || ''));
   const result = { lines, inputPresent, valid: [], duplicates: [], invalid: [], overLimit: lines.length > 100 };
   const seen = new Set();
-  if (inputPresent && !lines.length) result.invalid.push({ raw: urlInput.value.trim(), reason: '未找到 HTTP(S) 链接' });
+  if (inputPresent && !lines.length) result.invalid.push({ raw: String(inputValue || '').trim(), reason: '未找到 HTTP(S) 链接' });
   lines.forEach((raw) => {
     if (raw.length > 8192) { result.invalid.push({ raw, reason: '超过 8192 个字符' }); return; }
     let parsed;
@@ -598,7 +626,7 @@ function hideModal(modal) {
 }
 
 function activeModal() {
-  return [backdrop, projectBackdrop, playerBackdrop, processBackdrop, downloadBackdrop, inboxDetailBackdrop, batchMoveBackdrop, mediaEditBackdrop, localImportBackdrop, componentInstallBackdrop].find((modal) => !modal.hidden);
+  return [backdrop, projectBackdrop, playerBackdrop, processBackdrop, downloadBackdrop, inboxDetailBackdrop, batchMoveBackdrop, mediaEditBackdrop, localImportBackdrop, componentInstallBackdrop].filter(Boolean).find((modal) => !modal.hidden);
 }
 
 function trapModalFocus(event, modal) {
@@ -738,15 +766,17 @@ function renderInboxDetail() {
 function openInboxDetail(id) {
   if (!state.items.some((item) => item.id === id)) return;
   activeInboxDetailId = id;
-  inboxDetailError.textContent = '';
-  renderInboxDetail();
-  showModal(inboxDetailBackdrop, inboxDetailName);
+  window.ClipCargoWorkspace.ui.inbox.activeId = id;
+  state.pendingInboxRemoval = null;
+  render();
+  main.querySelector('#inspector-inbox-title')?.focus({ preventScroll: true });
 }
 
 function closeInboxDetail() {
   activeInboxDetailId = null;
-  inboxDetailError.textContent = '';
-  hideModal(inboxDetailBackdrop);
+  window.ClipCargoWorkspace.ui.inbox.activeId = null;
+  state.pendingInboxRemoval = null;
+  render();
 }
 
 function taskMatchesFilter(item, filter) {
@@ -839,6 +869,66 @@ function libraryAssets() {
 
 function libraryAssetKey(item) {
   return `${item.assetType}:${item.assetId}`;
+}
+
+function parseVttTimestamp(value) {
+  const parts = String(value || '').trim().split(':').map(Number);
+  if (parts.some((part) => !Number.isFinite(part))) return 0;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] || 0;
+}
+
+function parseVttCues(text, language = '') {
+  return String(text || '').replace(/^\uFEFF/, '').split(/\r?\n\r?\n/).flatMap((block) => {
+    const lines = block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const timingIndex = lines.findIndex((line) => line.includes('-->'));
+    if (timingIndex < 0) return [];
+    const start = lines[timingIndex].split('-->')[0].trim();
+    const cueText = lines.slice(timingIndex + 1).join(' ').replace(/<[^>]+>/g, '').trim();
+    if (!cueText) return [];
+    return [{ language, time: start.replace('.', ','), seconds: parseVttTimestamp(start), text: cueText }];
+  });
+}
+
+function renderLibrarySubtitleResults() {
+  const target = main.querySelector('.subtitle-results');
+  if (!target) return;
+  const libraryUi = window.ClipCargoWorkspace.ui.library;
+  const query = libraryUi.subtitleQuery.toLocaleLowerCase('zh-CN');
+  const matches = libraryUi.subtitleCues.filter((cue) => !query || cue.text.toLocaleLowerCase('zh-CN').includes(query));
+  if (libraryUi.subtitleLoading) target.innerHTML = '<p>正在读取字幕…</p>';
+  else if (libraryUi.subtitleError) target.innerHTML = `<p>${escapeHtml(libraryUi.subtitleError)}</p>`;
+  else if (matches.length) target.innerHTML = matches.slice(0, 12).map((cue) => `<button type="button" data-subtitle-seconds="${cue.seconds}"><time>${escapeHtml(cue.time)}</time><span>${escapeHtml(cue.text)}</span></button>`).join('');
+  else if (libraryUi.subtitleTracks.length) target.innerHTML = '<p>没有匹配的字幕片段。</p>';
+  else target.innerHTML = '<p>该素材包暂无可检索的独立 VTT 字幕。</p>';
+}
+
+async function loadLibrarySubtitleIndex(assetType, assetId) {
+  const libraryUi = window.ClipCargoWorkspace.ui.library;
+  libraryUi.subtitleLoading = true;
+  libraryUi.subtitleError = '';
+  libraryUi.subtitleTracks = [];
+  libraryUi.subtitleCues = [];
+  renderLibrarySubtitleResults();
+  try {
+    const tracks = await invoke('get_media_subtitles', { assetType, assetId });
+    libraryUi.subtitleTracks = Array.isArray(tracks) ? tracks : [];
+    const cueGroups = await Promise.all(libraryUi.subtitleTracks.map(async (track) => {
+      try {
+        const fileUrl = window.__TAURI__?.core?.convertFileSrc?.(track.path);
+        if (!fileUrl) return [];
+        const response = await fetch(fileUrl);
+        if (!response.ok) return [];
+        return parseVttCues(await response.text(), track.language || '');
+      } catch { return []; }
+    }));
+    libraryUi.subtitleCues = cueGroups.flat();
+  } catch (error) { libraryUi.subtitleError = readableError(error); }
+  finally {
+    libraryUi.subtitleLoading = false;
+    renderLibrarySubtitleResults();
+  }
 }
 
 function libraryAssetCard(item) {
@@ -963,21 +1053,18 @@ function closeMediaEdit() {
 
 async function openLocalImport(paths) {
   if (!paths?.length) return;
-  localImportError.textContent = '';
   try {
     const preview = await invoke('inspect_local_media', { paths });
     pendingLocalImportPaths = [...paths];
-    localImportSummary.textContent = `${preview.count} 个文件 · ${formatBytes(preview.totalBytes)}${preview.count > 1 ? '（总计）' : ''}`;
-    localImportProject.innerHTML = state.projects.map((project) => `<option value="${escapeHtml(project.name)}" ${project.name === preferredProject() ? 'selected' : ''}>${escapeHtml(project.name)}</option>`).join('');
-    localImportBackdrop.querySelector('[name="local-import-mode"][value="copy"]').checked = true;
-    showModal(localImportBackdrop, localImportProject);
+    const projectName = preferredProject();
+    const content = `<div class="drawer-form"><div class="local-import-summary"><span class="ui-icon" style="--icon:url('./assets/icons/file-up.svg')"></span><div><strong>${preview.count} 个媒体文件</strong><small>${formatBytes(preview.totalBytes)}${preview.count > 1 ? '（总计）' : ''}</small></div></div><div class="drawer-file-list">${paths.slice(0, 8).map((path) => `<div>${icon('file-video')}<span title="${escapeHtml(path)}">${escapeHtml(String(path).split(/[\\/]/).pop())}</span></div>`).join('')}${paths.length > 8 ? `<small>另有 ${paths.length - 8} 个文件</small>` : ''}</div><label><span>归属项目</span><select id="drawer-local-project" class="field-control">${state.projects.map((project) => `<option value="${escapeHtml(project.name)}" ${project.name === projectName ? 'selected' : ''}>${escapeHtml(project.name)}</option>`).join('')}</select></label><fieldset class="import-mode-options"><legend>导入方式</legend><label><input type="radio" name="drawer-local-mode" value="copy" checked><span><strong>复制到素材库</strong><small>由 ClipCargo 管理，可安全移到回收站</small></span></label><label><input type="radio" name="drawer-local-mode" value="reference"><span><strong>引用原文件</strong><small>不复制、不移动，原路径变化后需要重新定位</small></span></label></fieldset><div id="drawer-local-error" class="form-error" role="alert"></div><div class="drawer-footer"><button class="button" data-drawer-close>取消</button><button id="drawer-local-submit" class="button primary" data-action="submit-local-drawer">${icon('file-up')}开始导入</button></div></div>`;
+    window.ClipCargoDrawer.open({ type: 'local-import', title: '导入本地媒体', eyebrow: '素材库', content, focusSelector: '#drawer-local-project', draft: { projectName, importMode: 'copy' }, payload: { paths: [...paths] } });
   } catch (error) { notify(readableError(error)); }
 }
 
 function closeLocalImport() {
   pendingLocalImportPaths = [];
-  localImportError.textContent = '';
-  hideModal(localImportBackdrop);
+  window.ClipCargoDrawer.close({ force: true });
 }
 
 const componentInstallPlans = {
@@ -990,39 +1077,26 @@ function openComponentInstall(kind) {
   const plan = componentInstallPlans[kind];
   if (!plan) return;
   pendingComponentInstall = kind;
-  componentInstallTitle.textContent = `安装${plan.title}`;
-  componentInstallPurpose.textContent = plan.purpose;
-  componentInstallDownload.textContent = `${plan.download}（随官方版本变化）`;
-  componentInstallSize.textContent = plan.installed;
-  componentInstallSource.textContent = plan.source;
-  componentInstallPath.textContent = state.components?.componentDirectory || 'ClipCargo 应用数据目录';
-  componentInstallError.textContent = '';
+  state.pendingComponentInstallKind = kind;
   componentCancelRequested = false;
-  componentInstallConfirm.disabled = false;
-  componentInstallCancel.disabled = false;
-  componentInstallCancel.textContent = '取消';
-  componentInstallClose.disabled = false;
-  componentInstallConfirm.removeAttribute('aria-busy');
-  componentInstallConfirm.innerHTML = `${icon('download')}确认下载并安装`;
-  showModal(componentInstallBackdrop, componentInstallConfirm);
+  render();
 }
 
 function closeComponentInstall() {
-  if (componentInstallConfirm.disabled) return;
   pendingComponentInstall = null;
-  componentInstallError.textContent = '';
-  hideModal(componentInstallBackdrop);
+  state.pendingComponentInstallKind = null;
+  render();
 }
 
 async function confirmComponentInstall() {
-  const kind = pendingComponentInstall;
+  const kind = state.pendingComponentInstallKind || pendingComponentInstall;
   const plan = componentInstallPlans[kind];
   if (!plan) return;
   activeComponentInstallKind = kind;
   pendingComponentInstall = null;
+  state.pendingComponentInstallKind = null;
   componentCancelRequested = false;
   componentInstallFailure = '';
-  hideModal(componentInstallBackdrop);
   state.components = { ...(state.components || {}), installing: true, installPhase: 'downloading', installProgressPercent: 0 };
   render();
   notify(`${plan.title}已转入后台安装，可以继续使用其他页面`);
@@ -1088,19 +1162,22 @@ async function cancelComponentInstall() {
 
 async function submitLocalImport() {
   if (!pendingLocalImportPaths.length) return;
-  const button = document.querySelector('#local-import-submit');
-  const importMode = localImportBackdrop.querySelector('[name="local-import-mode"]:checked')?.value || 'copy';
+  const button = document.querySelector('#drawer-local-submit');
+  const importMode = document.querySelector('[name="drawer-local-mode"]:checked')?.value || 'copy';
+  const projectName = document.querySelector('#drawer-local-project')?.value || preferredProject();
+  const errorBox = document.querySelector('#drawer-local-error');
   button.disabled = true;
-  localImportError.textContent = '';
+  button.setAttribute('aria-busy', 'true');
+  if (errorBox) errorBox.textContent = '';
   try {
-    const imported = await invoke('import_local_media', { paths: pendingLocalImportPaths, projectName: localImportProject.value, importMode });
+    const imported = await invoke('import_local_media', { paths: pendingLocalImportPaths, projectName, importMode });
     closeLocalImport();
     await refreshInbox();
     state.view = 'library';
     render();
     notify(`已${importMode === 'copy' ? '复制导入' : '引用'} ${imported.length} 个本地素材`);
-  } catch (error) { localImportError.textContent = readableError(error); }
-  finally { button.disabled = false; }
+  } catch (error) { if (errorBox) errorBox.textContent = readableError(error); }
+  finally { if (button) { button.disabled = false; button.removeAttribute('aria-busy'); } }
 }
 
 function renderBrowser() {
@@ -1184,24 +1261,194 @@ function renderBrowser() {
   main.innerHTML = `<div class="settings-layout"><aside class="settings-nav" role="tablist" aria-label="设置分类">${categories.map(([id, text, iconName]) => { const active = state.settingsSection === id; return `<button id="settings-tab-${id}" class="settings-nav-item ${active ? 'active' : ''}" role="tab" data-settings-section="${id}" aria-selected="${active}" aria-controls="${id}-settings-panel" tabindex="${active ? '0' : '-1'}">${icon(iconName)}<span>${text}</span></button>`; }).join('')}</aside><div class="settings-content">${panels}</div></div>`;
 }
 
+function projectColor(name, index) {
+  const palette = ['#515fd4', '#0ea5e9', '#10b981', '#ec4899', '#f59e0b', '#8b5cf6'];
+  let hash = index;
+  for (const char of String(name)) hash = (hash * 31 + char.codePointAt(0)) >>> 0;
+  return palette[hash % palette.length];
+}
+
+function renderShellState() {
+  count.textContent = state.items.length;
+  const visibleAssets = libraryAssets();
+  libraryCount.textContent = visibleAssets.length;
+  const visibleDerivatives = state.derivatives.filter((item) => item.kind !== 'source');
+  const unifiedJobs = globalThis.ClipCargoJobModel?.combine(state.jobs, visibleDerivatives) || [];
+  const actionableTaskCount = unifiedJobs.filter((job) => taskMatchesFilter(job, 'active') || taskMatchesFilter(job, 'attention')).length;
+  taskCount.textContent = actionableTaskCount;
+  taskCount.hidden = actionableTaskCount === 0;
+
+  const activeTask = unifiedJobs.find((job) => ['downloading', 'processing'].includes(job.status))
+    || unifiedJobs.find((job) => ['queued', 'paused'].includes(job.status));
+  if (activeTask) {
+    const progress = Math.max(0, Math.min(100, Number(activeTask.progress || 0)));
+    const downloadRecord = activeTask.kind === 'download' ? state.jobs.find((job) => job.id === activeTask.sourceId) : null;
+    miniTaskLabel.textContent = `${activeTask.status === 'paused' ? '已暂停' : activeTask.status === 'processing' ? 'FFmpeg 处理' : activeTask.status === 'queued' ? '等待执行' : '正在下载'} · ${Math.round(progress)}%`;
+    miniTaskSpeed.textContent = downloadRecord?.speedBytesPerSecond ? formatTransferRate(downloadRecord.speedBytesPerSecond) : activeTask.status === 'paused' ? '暂停中' : '后台运行';
+    miniTaskProgress.style.width = `${progress}%`;
+  } else {
+    miniTaskLabel.textContent = '队列空闲 · 全部已完成';
+    miniTaskSpeed.textContent = '就绪';
+    miniTaskProgress.style.width = '100%';
+  }
+
+  const bridgeOnline = Boolean(state.bridge?.extensionActive);
+  const bridgeReady = bridgeOnline || Boolean(state.bridge?.extensionVerified);
+  extensionHeartbeat.classList.toggle('online', bridgeOnline);
+  extensionHeartbeat.classList.toggle('offline', !bridgeOnline);
+  extensionHeartbeatText.textContent = bridgeOnline ? 'Chrome 扩展在线' : bridgeReady ? 'Chrome 扩展待连接' : 'Chrome 扩展未连接';
+
+  editorStatusPill.classList.toggle('unavailable', !state.editor);
+  editorStatusText.textContent = state.editor ? `${state.editor.name.includes('剪映') ? '剪映 Pro' : state.editor.name} 已就绪` : '未发现剪映 Pro';
+
+  const validProjects = new Set(state.projects.map((project) => project.name));
+  if (state.workspaceProject !== 'all' && !validProjects.has(state.workspaceProject)) state.workspaceProject = 'all';
+  const countForProject = (name) => state.items.filter((item) => item.projectName === name).length
+    + visibleAssets.filter((asset) => asset.projectName === name).length;
+  sidebarProjectTree.innerHTML = `<button class="sidebar-project ${state.workspaceProject === 'all' ? 'active' : ''}" type="button" data-workspace-project="all"><span class="project-color"></span><span class="sidebar-project-name">全部项目</span><span class="sidebar-project-count">${state.items.length + visibleAssets.length}</span></button>${state.projects.map((project, index) => `<button class="sidebar-project ${state.workspaceProject === project.name ? 'active' : ''}" type="button" data-workspace-project="${escapeHtml(project.name)}"><span class="project-color" style="--project-color:${projectColor(project.name, index)}"></span><span class="sidebar-project-name">${escapeHtml(project.name)}</span><span class="sidebar-project-count">${countForProject(project.name)}</span></button>`).join('')}`;
+  sidebarProjectTree.querySelectorAll('[data-workspace-project]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const project = button.dataset.workspaceProject;
+      state.workspaceProject = project;
+      state.projectFilter = project;
+      state.libraryProject = project;
+      state.inboxPage = 1;
+      state.libraryPage = 1;
+      if (!['inbox', 'library'].includes(state.view)) state.view = 'inbox';
+      localStorage.setItem('clipcargo:last-view', state.view);
+      render();
+    });
+  });
+}
+
+function commandItems(query) {
+  const q = query.trim();
+  const lower = q.toLocaleLowerCase('zh-CN');
+  const items = [];
+  if (/^https?:\/\/\S+$/i.test(q)) {
+    items.push({ label: `加入收集箱：${q}`, hint: 'Enter', run: async () => {
+      if (!invoke) throw new Error('请在桌面应用中添加链接。');
+      const result = await invoke('capture_page', { input: { pageUrl: q, title: '', projectName: preferredProject(), captureMethod: 'paste' } });
+      closeCommandPalette();
+      state.view = 'inbox';
+      await refreshInbox({ quiet: true });
+      render();
+      notify(result?.duplicate ? '该链接已在收集箱中' : '链接已加入收集箱，正在后台识别');
+    } });
+  }
+  const commands = [
+    ['打开智能收集箱', 'G I', () => navigateFromCommand('inbox')],
+    ['打开素材库工作台', 'G L', () => navigateFromCommand('library')],
+    ['进入预览与快剪台', 'G S', () => navigateFromCommand('studio')],
+    ['查看任务队列', 'G T', () => navigateFromCommand('tasks')],
+    ['打开设置中心', '设置', () => navigateFromCommand('browser')],
+    ['批量添加视频链接', '抽屉', () => { closeCommandPalette(); openDialog(); }],
+  ];
+  for (const [label, hint, run] of commands) if (!lower || label.toLocaleLowerCase('zh-CN').includes(lower)) items.push({ label, hint, run });
+  for (const asset of libraryAssets()) {
+    if (lower && !String(asset.title || '').toLocaleLowerCase('zh-CN').includes(lower)) continue;
+    items.push({ label: asset.title, hint: `${asset.projectName || '未分类'} · 素材`, run: async () => { closeCommandPalette(); openStudio(asset.assetType, asset.assetId); } });
+  }
+  return items.slice(0, 40);
+}
+
+function navigateFromCommand(view) {
+  closeCommandPalette();
+  state.view = view;
+  localStorage.setItem('clipcargo:last-view', state.view);
+  render();
+  if (view === 'browser' && invoke && !state.bridge) refreshSettingsState().then(render);
+}
+
+function renderCommandPalette() {
+  commandPaletteItems = commandItems(commandPaletteInput.value);
+  commandPaletteActiveIndex = Math.min(commandPaletteActiveIndex, Math.max(0, commandPaletteItems.length - 1));
+  commandPaletteResults.innerHTML = commandPaletteItems.length ? commandPaletteItems.map((item, index) => `<button class="command-result ${index === commandPaletteActiveIndex ? 'active' : ''}" type="button" role="option" aria-selected="${index === commandPaletteActiveIndex}" data-command-index="${index}"><span class="command-result-label">${escapeHtml(item.label)}</span><span class="command-result-hint">${escapeHtml(item.hint)}</span></button>`).join('') : '<div class="command-empty">没有匹配的命令或素材</div>';
+}
+
+function openCommandPalette() {
+  commandPalette.hidden = false;
+  commandPaletteInput.value = '';
+  commandPaletteActiveIndex = 0;
+  renderCommandPalette();
+  requestAnimationFrame(() => commandPaletteInput.focus());
+}
+
+function closeCommandPalette() { commandPalette.hidden = true; }
+
+async function runActiveCommand() {
+  const item = commandPaletteItems[commandPaletteActiveIndex];
+  if (!item) return;
+  try { await item.run(); }
+  catch (error) { notify(readableError(error)); }
+}
+
 function render() {
+  if (state.view !== 'studio') window.ClipCargoViews.studio?.teardown();
   document.querySelectorAll('[data-view]').forEach((button) => {
     const current = button.dataset.view === state.view;
     button.classList.toggle('active', current);
     button.toggleAttribute('aria-current', current);
     if (current) button.setAttribute('aria-current', 'page');
   });
-  count.textContent = state.items.length;
-  const unifiedJobs = globalThis.ClipCargoJobModel?.combine(state.jobs, state.derivatives) || [];
-  const actionableTaskCount = unifiedJobs.filter((job) => taskMatchesFilter(job, 'active') || taskMatchesFilter(job, 'attention')).length;
-  taskCount.textContent = actionableTaskCount;
-  taskCount.hidden = actionableTaskCount === 0;
-  if (state.view === 'inbox') renderInbox();
-  else if (state.view === 'browser') renderBrowser();
-  else if (state.view === 'tasks') renderTasks();
-  else renderLibrary();
+  document.querySelector('.settings-entry')?.classList.toggle('active', state.view === 'browser');
+  renderShellState();
+  const commonHelpers = { escapeHtml, icon, formatTime, formatDuration, formatBytes, formatTransferRate, outputPresetLabel, derivativeKind, pagination, safeThumbnail };
+  if (state.view === 'inbox') {
+    main.innerHTML = window.ClipCargoViews.inbox.render({ state, preferences, selected: selectedInboxItems, pageSize: INBOX_PAGE_SIZE, helpers: { ...commonHelpers, statusFor: inboxDisplayStatus, canRemove: canRemoveInboxItem } });
+  } else if (state.view === 'browser') {
+    main.innerHTML = window.ClipCargoViews.settings.render({ state, preferences, helpers: { ...commonHelpers, preferredProject, compactComponentVersion }, runtime: { componentCancelRequested, componentInstallFailure, activeComponentInstallKind } });
+  } else if (state.view === 'tasks') {
+    main.innerHTML = window.ClipCargoViews.tasks.render({ state, pageSize: TASK_PAGE_SIZE, historyClearedBefore: taskHistoryClearedBefore, helpers: { ...commonHelpers, userCancelled, taskErrorMarkup, taskRecoveryButton } });
+  } else if (state.view === 'studio') {
+    const studioContext = createStudioContext(commonHelpers);
+    main.innerHTML = window.ClipCargoViews.studio.render(studioContext);
+    queueMicrotask(() => window.ClipCargoViews.studio.mount(studioContext));
+  }
+  else {
+    main.innerHTML = window.ClipCargoViews.library.render({ state, selected: selectedLibraryAssets, pageSize: LIBRARY_PAGE_SIZE, helpers: commonHelpers });
+  }
   enhanceSelects(main);
+  main.querySelectorAll('.media-thumb img, .package-cover img, .file-thumb img, .storyboard-thumb img, .inbox-inspector-preview img').forEach((image) => {
+    image.addEventListener('error', () => {
+      const fallback = document.createElement('span');
+      fallback.className = 'ui-icon';
+      fallback.style.setProperty('--icon', "url('./assets/icons/film.svg')");
+      image.replaceWith(fallback);
+    }, { once: true });
+  });
   globalThis.ClipCargoTooltip?.install(document);
+}
+
+function createStudioContext(helpers = { escapeHtml, icon, formatTime, formatDuration, formatBytes, safeThumbnail }) {
+  return {
+    state,
+    helpers,
+    invoke,
+    notify,
+    readableError,
+    refresh: refreshInbox,
+    openAsset(key) {
+      const [assetType, assetIdRaw] = String(key || '').split(':');
+      openStudio(assetType, Number(assetIdRaw));
+    },
+    openSettings() {
+      state.view = 'browser';
+      state.settingsSection = 'tools';
+      localStorage.setItem('clipcargo:last-view', state.view);
+      localStorage.setItem('clipcargo:settings-section', state.settingsSection);
+      render();
+      queueMicrotask(() => document.querySelector('#components-settings')?.focus({ preventScroll: true }));
+    },
+  };
+}
+
+function openStudio(assetType, assetId, seekSeconds = null) {
+  if (!assetType || !Number.isFinite(assetId)) return;
+  window.ClipCargoWorkspace.openStudioAsset(assetType, assetId, seekSeconds);
+  state.view = 'studio';
+  localStorage.setItem('clipcargo:last-view', state.view);
+  render();
 }
 
 function interactionSelector(element) {
@@ -1218,6 +1465,12 @@ function interactionSelector(element) {
 }
 
 function renderPreservingInteraction() {
+  if (window.ClipCargoWorkspace?.shouldDeferRefresh(document)) {
+    renderShellState();
+    window.ClipCargoWorkspace.patchLiveData(main, state);
+    return;
+  }
+  const workspaceSnapshot = window.ClipCargoWorkspace?.captureInteraction(document);
   const active = document.activeElement;
   const selector = interactionSelector(active);
   const selection = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
@@ -1236,6 +1489,7 @@ function renderPreservingInteraction() {
     }
   }
   window.scrollTo(...scrollPosition);
+  window.ClipCargoWorkspace?.restoreInteraction(workspaceSnapshot);
 }
 
 async function refreshSettingsState() {
@@ -1286,6 +1540,7 @@ async function refreshInbox({ quiet = false } = {}) {
     state.jobs = jobs;
     state.derivatives = derivatives;
     state.projects = projects;
+    void window.ClipCargoViews.studio?.processPendingImports(createStudioContext());
     if (preferences.defaultProject !== preferredProject()) {
       preferences.defaultProject = preferredProject();
       savePreferences();
@@ -1310,28 +1565,24 @@ function hasActiveWork() {
 
 function scheduleRefresh(delay) {
   clearTimeout(refreshTimer);
-  const relevantView = state.view === 'inbox' || state.view === 'tasks';
+  const relevantView = state.view === 'inbox' || state.view === 'tasks' || state.view === 'studio';
   const nextDelay = delay ?? (document.hidden || !relevantView ? 15_000 : hasActiveWork() ? 2_000 : 5_000);
   refreshTimer = setTimeout(async () => {
-    if (!document.hidden && (state.view === 'inbox' || state.view === 'tasks')) await refreshInbox({ quiet: true });
+    if (!document.hidden && (state.view === 'inbox' || state.view === 'tasks' || state.view === 'studio')) await refreshInbox({ quiet: true });
     scheduleRefresh();
   }, nextDelay);
 }
 
 function openDialog() {
-  formError.textContent = '';
-  urlInput.value = '';
-  projectInput.value = state.projectFilter === 'all' ? preferredProject() : state.projectFilter;
-  renderProjectSuggestions();
-  closeProjectSuggestions();
-  updateLinkSummary();
-  showModal(backdrop, urlInput);
+  const projectName = state.projectFilter === 'all' ? preferredProject() : state.projectFilter;
+  const draft = { links: '', projectName };
+  const content = `<div class="drawer-form"><label><span>分享文案或页面链接</span><textarea id="drawer-url-input" data-preserve-refresh rows="9" placeholder="每行一个链接，也可以直接粘贴包含链接的分享文案"></textarea></label><div id="drawer-url-summary" class="drawer-summary">自动提取 HTTP(S) 链接，单次最多 100 条</div><label><span>归属项目</span><select id="drawer-project" class="field-control">${state.projects.map((project) => `<option value="${escapeHtml(project.name)}" ${project.name === projectName ? 'selected' : ''}>${escapeHtml(project.name)}</option>`).join('')}</select></label><div id="drawer-form-error" class="form-error" role="alert"></div><div class="drawer-footer"><button class="button" data-drawer-close>取消</button><button id="drawer-import-links" class="button primary" data-action="submit-link-drawer" disabled>${icon('plus')}加入收集箱</button></div></div>`;
+  window.ClipCargoDrawer.open({ type: 'add-links', title: '批量添加链接', eyebrow: '智能收集箱', content, focusSelector: '#drawer-url-input', draft });
 }
 
 function closeDialog() {
   if (linkImportInProgress) return;
-  hideModal(backdrop);
-  formError.textContent = '';
+  window.ClipCargoDrawer.close();
 }
 
 function closePlayer() {
@@ -1397,7 +1648,7 @@ function isPlayerShortcutTarget(element) {
 }
 
 function updateCropMask() {
-  if (cropEditor.hidden || !cropPreview.videoWidth || !cropPreview.clientWidth) return;
+  if (!cropEditor || !cropPreview || cropEditor.hidden || !cropPreview.videoWidth || !cropPreview.clientWidth) return;
   const width = cropPreview.clientWidth;
   const height = cropPreview.clientHeight;
   const zoom = Number(cropZoom.value) / 100;
@@ -1769,27 +2020,93 @@ async function openDownload(itemIds) {
     notify('单次最多准备 100 项，请缩小筛选范围或分批选择');
     return;
   }
-  const selectedItems = state.items.filter((item) => activeDownloadItemIds.includes(item.id));
-  document.querySelector('#download-title').textContent = activeDownloadItemIds.length > 1 ? `准备下载 ${activeDownloadItemIds.length} 项` : '准备下载';
-  downloadPreset.value = preferences.downloadPreset;
-  downloadSubtitles.checked = (preferences.saveSubtitles || preferences.downloadPreset === 'package') && preferences.downloadPreset !== 'audio';
-  downloadCover.checked = preferences.downloadPreset === 'package';
-  downloadSourceRecord.checked = true;
-  downloadRetainSource.checked = true;
-  updateDownloadPresetFields();
-  renderDownloadQualityOptions(selectedItems);
   if (invoke) state.components = await invoke('component_status').catch(() => state.components);
-  renderDownloadSummary();
-  applyDownloadPreflight();
-  showModal(downloadBackdrop, downloadQuality);
+  if (activeDownloadItemIds.length === 1) {
+    window.ClipCargoWorkspace.ui.inbox.activeId = activeDownloadItemIds[0];
+    render();
+    main.querySelector('#inbox-inspector-quality')?.focus({ preventScroll: true });
+    return;
+  }
+  const selectedItems = state.items.filter((item) => activeDownloadItemIds.includes(item.id));
+  const estimated = selectedItems.map((item) => item.estimatedBytes).filter(Number.isFinite).reduce((sum, value) => sum + value, 0);
+  const content = `<div class="drawer-form"><div class="batch-download-summary"><strong>${selectedItems.length} 个已就绪条目</strong><small>${estimated ? `预计 ${formatBytes(estimated)} · ` : ''}${escapeHtml(state.components?.downloadsDirectory || 'ClipCargo 素材目录')}</small></div><label><span>输出预设</span><select id="drawer-download-preset" class="field-control"><option value="package" ${preferences.downloadPreset === 'package' ? 'selected' : ''}>完整素材包</option><option value="video" ${preferences.downloadPreset === 'video' ? 'selected' : ''}>兼容 MP4</option><option value="source" ${preferences.downloadPreset === 'source' ? 'selected' : ''}>原格式封装</option><option value="audio" ${preferences.downloadPreset === 'audio' ? 'selected' : ''}>仅 MP3 音频</option></select></label><label><span>清晰度</span><select id="drawer-download-quality" class="field-control"><option value="1080" ${preferences.downloadQuality === '1080' ? 'selected' : ''}>最高 1080p</option><option value="720" ${preferences.downloadQuality === '720' ? 'selected' : ''}>最高 720p</option><option value="best" ${preferences.downloadQuality === 'best' ? 'selected' : ''}>最佳可用</option></select></label><div class="drawer-check-list"><label><input id="drawer-download-subtitles" type="checkbox" ${preferences.saveSubtitles ? 'checked' : ''}>保存独立 VTT 字幕</label><label><input id="drawer-download-cover" type="checkbox" checked>保存封面</label><label><input id="drawer-download-source-record" type="checkbox" checked>保存来源记录</label><label><input id="drawer-download-retain-source" type="checkbox" checked>素材包保留来源格式</label></div><div class="preflight-card ${state.components?.ytDlpReady === false ? 'warning' : 'success'}"><div><span class="status-dot"></span><strong>${state.components?.ytDlpReady === false ? '缺少下载引擎' : '批量预检通过'}</strong></div><p>${state.components?.ytDlpReady === false ? '请先在设置中安装 yt-dlp。' : '每个来源会单独检查，不可用项目不会影响其他任务。'}</p></div><div id="drawer-download-error" class="form-error"></div><div class="drawer-footer"><button class="button" data-drawer-close>取消</button><button id="drawer-download-submit" class="button primary" data-action="submit-download-drawer" ${state.components?.ytDlpReady === false ? 'disabled' : ''}>${icon('download')}创建 ${selectedItems.length} 个任务</button></div></div>`;
+  window.ClipCargoDrawer.open({ type: 'batch-download', title: `准备下载 ${selectedItems.length} 项`, eyebrow: '批量下载', content, focusSelector: '#drawer-download-preset', draft: { ids: [...activeDownloadItemIds] } });
 }
 
 function closeDownload() {
   activeDownloadItemIds = [];
-  document.querySelector('#download-title').textContent = '准备下载';
-  downloadError.textContent = '';
-  document.querySelector('#download-component-action').hidden = true;
-  hideModal(downloadBackdrop);
+  window.ClipCargoDrawer.close({ force: true });
+}
+
+async function createDownloadTasks(ids, options, errorBox = null) {
+  const failures = [];
+  let started = 0;
+  for (const id of ids) {
+    try {
+      await invoke('download_inbox_item', {
+        id,
+        quality: options.quality,
+        outputPreset: options.outputPreset,
+        saveSubtitles: options.saveSubtitles,
+        subtitleLanguages: options.saveSubtitles ? (options.subtitleLanguages?.length ? options.subtitleLanguages : ['zh.*', 'en.*']) : [],
+        saveCover: options.saveCover,
+        saveSourceRecord: options.saveSourceRecord,
+        retainSource: options.retainSource,
+        concurrencyLimit: preferences.downloadConcurrency,
+      });
+      selectedInboxItems.delete(id);
+      started += 1;
+    } catch (error) { failures.push(readableError(error)); }
+  }
+  if (!started) {
+    if (errorBox) errorBox.textContent = failures[0] || '未能创建下载任务。';
+    else notify(failures[0] || '未能创建下载任务。');
+    return false;
+  }
+  closeDownload();
+  await refreshInbox({ quiet: true });
+  state.view = 'tasks';
+  state.taskFilter = 'active';
+  state.taskPage = 1;
+  localStorage.setItem('clipcargo:last-view', state.view);
+  render();
+  notify(failures.length ? `已创建 ${started} 个任务，${failures.length} 个未能启动` : `已创建 ${started} 个下载任务`);
+  return true;
+}
+
+async function submitInspectorDownload() {
+  const id = window.ClipCargoWorkspace.ui.inbox.activeId;
+  const item = state.items.find((entry) => entry.id === id);
+  if (!item) return;
+  const draft = window.ClipCargoWorkspace.ensureInboxDraft(item, preferences);
+  const button = main.querySelector('[data-action="download-inspector"]');
+  if (button) setButtonBusy(button, '正在创建…');
+  await createDownloadTasks([id], {
+    quality: draft.quality || 'best',
+    outputPreset: draft.preset,
+    saveSubtitles: draft.saveSubtitles,
+    subtitleLanguages: draft.subtitleLanguages,
+    saveCover: draft.saveCover,
+    saveSourceRecord: draft.saveSourceRecord,
+    retainSource: draft.retainSource,
+  });
+}
+
+async function submitBatchDownloadDrawer() {
+  const button = document.querySelector('#drawer-download-submit');
+  const errorBox = document.querySelector('#drawer-download-error');
+  if (!activeDownloadItemIds.length || !button) return;
+  setButtonBusy(button, '正在创建…');
+  const started = await createDownloadTasks(activeDownloadItemIds, {
+    quality: document.querySelector('#drawer-download-quality')?.value || 'best',
+    outputPreset: document.querySelector('#drawer-download-preset')?.value || 'package',
+    saveSubtitles: Boolean(document.querySelector('#drawer-download-subtitles')?.checked),
+    subtitleLanguages: ['zh.*', 'en.*'],
+    saveCover: Boolean(document.querySelector('#drawer-download-cover')?.checked),
+    saveSourceRecord: Boolean(document.querySelector('#drawer-download-source-record')?.checked),
+    retainSource: Boolean(document.querySelector('#drawer-download-retain-source')?.checked),
+  }, errorBox);
+  if (!started && document.body.contains(button)) clearButtonBusy(button);
 }
 
 async function submitDownload() {
@@ -1835,32 +2152,31 @@ async function submitDownload() {
 
 async function importLinks() {
   if (linkImportInProgress) return;
-  const analysis = updateLinkSummary();
+  const drawerInput = document.querySelector('#drawer-url-input');
+  const drawerProject = document.querySelector('#drawer-project');
+  const drawerError = document.querySelector('#drawer-form-error');
+  const drawerButton = document.querySelector('#drawer-import-links');
+  const inputValue = drawerInput?.value || '';
+  const projectName = canonicalProjectName(drawerProject?.value || preferredProject());
+  const analysis = analyzeLinks(projectName, inputValue);
   if (!analysis.lines.length) {
-    formError.textContent = '请至少输入一个完整链接。';
+    if (drawerError) drawerError.textContent = '请至少输入一个完整链接。';
     return;
   }
   if (analysis.overLimit) {
-    formError.textContent = '单次最多导入 100 个链接，请分批处理。';
+    if (drawerError) drawerError.textContent = '单次最多导入 100 个链接，请分批处理。';
     return;
   }
   linkImportInProgress = true;
-  importButton.disabled = true;
-  importButton.setAttribute('aria-busy', 'true');
-  dialogClose.disabled = true;
-  dialogCancel.disabled = true;
-  urlInput.disabled = true;
-  projectInput.disabled = true;
-  projectToggle.disabled = true;
-  closeProjectSuggestions();
+  if (drawerButton) { drawerButton.disabled = true; drawerButton.setAttribute('aria-busy', 'true'); }
+  if (drawerInput) drawerInput.disabled = true;
+  if (drawerProject) drawerProject.disabled = true;
   const errors = [];
   let imported = 0;
   let duplicates = analysis.duplicates.length;
-  const projectName = canonicalProjectName(projectInput.value);
-  projectInput.value = projectName;
   try {
     for (const [index, entry] of analysis.valid.entries()) {
-      importButton.textContent = `正在加入 ${index + 1}/${analysis.valid.length}…`;
+      if (drawerButton) drawerButton.textContent = `正在加入 ${index + 1}/${analysis.valid.length}…`;
       try {
         const result = await invoke('capture_page', { input: { pageUrl: entry.normalized, title: '', projectName, captureMethod: 'paste' } });
         if (result.duplicate) duplicates += 1;
@@ -1871,36 +2187,173 @@ async function importLinks() {
     }
     const rejected = [...analysis.invalid.map((entry) => entry.raw), ...analysis.duplicates.map((entry) => entry.raw), ...errors.map((entry) => entry.raw)];
     if (rejected.length) {
-      urlInput.value = rejected.join('\n');
+      if (drawerInput) drawerInput.value = rejected.join('\n');
       await refreshInbox();
       const firstProblem = analysis.invalid[0]?.reason || errors[0]?.message || '重复链接未再次加入';
-      formError.textContent = `已加入 ${imported} 条；重复 ${duplicates} 条；需修改 ${analysis.invalid.length + errors.length} 条。${firstProblem}`;
+      if (drawerError) drawerError.textContent = `已加入 ${imported} 条；重复 ${duplicates} 条；需修改 ${analysis.invalid.length + errors.length} 条。${firstProblem}`;
     } else {
       await refreshInbox();
-      hideModal(backdrop);
-      formError.textContent = '';
+      window.ClipCargoDrawer.close({ force: true });
       notify(`已加入 ${imported} 条${duplicates ? `，忽略重复 ${duplicates} 条` : ''}`);
     }
   } catch (error) {
-    formError.textContent = readableError(error);
+    if (drawerError) drawerError.textContent = readableError(error);
   } finally {
     linkImportInProgress = false;
-    importButton.removeAttribute('aria-busy');
-    importButton.textContent = '加入收集';
-    dialogClose.disabled = false;
-    dialogCancel.disabled = false;
-    urlInput.disabled = false;
-    projectInput.disabled = false;
-    projectToggle.disabled = false;
-    if (!backdrop.hidden) updateLinkSummary();
+    if (drawerButton) { drawerButton.removeAttribute('aria-busy'); drawerButton.textContent = '加入收集箱'; }
+    if (drawerInput) drawerInput.disabled = false;
+    if (drawerProject) drawerProject.disabled = false;
   }
 }
+
+document.querySelector('#global-search-trigger').addEventListener('click', openCommandPalette);
+commandPalette.addEventListener('click', (event) => { if (event.target === commandPalette) closeCommandPalette(); });
+commandPaletteInput.addEventListener('input', () => { commandPaletteActiveIndex = 0; renderCommandPalette(); });
+commandPaletteInput.addEventListener('keydown', async (event) => {
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    commandPaletteActiveIndex = (commandPaletteActiveIndex + 1) % Math.max(1, commandPaletteItems.length);
+    renderCommandPalette();
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    commandPaletteActiveIndex = (commandPaletteActiveIndex - 1 + commandPaletteItems.length) % Math.max(1, commandPaletteItems.length);
+    renderCommandPalette();
+  } else if (event.key === 'Enter') {
+    event.preventDefault();
+    await runActiveCommand();
+  }
+});
+commandPaletteResults.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-command-index]');
+  if (!button) return;
+  commandPaletteActiveIndex = Number(button.dataset.commandIndex);
+  await runActiveCommand();
+});
+
+document.querySelector('#window-minimize').addEventListener('click', () => { void minimizeWindow?.(); });
+document.querySelector('#window-maximize').addEventListener('click', () => { void toggleMaximizeWindow?.(); });
+document.querySelector('#window-close').addEventListener('click', () => { void closeWindow?.(); });
+const appTitlebar = document.querySelector('#app-titlebar');
+appTitlebar.addEventListener('mousedown', (event) => {
+  if (event.button === 0 && !event.target.closest('button')) void startWindowDragging?.();
+});
+appTitlebar.addEventListener('dblclick', (event) => {
+  if (!event.target.closest('button')) void toggleMaximizeWindow?.();
+});
+
+editorStatusPill.addEventListener('click', () => {
+  state.view = 'browser';
+  state.settingsSection = 'general';
+  localStorage.setItem('clipcargo:last-view', state.view);
+  localStorage.setItem('clipcargo:settings-section', state.settingsSection);
+  render();
+});
+extensionHeartbeat.addEventListener('click', () => {
+  state.view = 'browser';
+  state.settingsSection = 'extension';
+  localStorage.setItem('clipcargo:last-view', state.view);
+  localStorage.setItem('clipcargo:settings-section', state.settingsSection);
+  render();
+  if (invoke && !state.bridge) refreshSettingsState().then(render);
+});
+
+document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    commandPalette.hidden ? openCommandPalette() : closeCommandPalette();
+    return;
+  }
+  if (!commandPalette.hidden && event.key === 'Escape') {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    closeCommandPalette();
+  }
+}, true);
 
 document.addEventListener('click', async (event) => {
   const button = event.target.closest('button');
   if (!button) return;
   button.closest('.media-more')?.removeAttribute('open');
-  if (button.dataset.pageScope) {
+  if (button.dataset.action === 'submit-link-drawer') {
+    await importLinks();
+  } else if (button.dataset.action === 'submit-local-drawer') {
+    await submitLocalImport();
+  } else if (button.dataset.action === 'submit-download-drawer') {
+    await submitBatchDownloadDrawer();
+  } else if (button.dataset.action === 'open-local-drawer') {
+    try {
+      const paths = await chooseMediaFiles(true);
+      if (paths.length) await openLocalImport(paths);
+    } catch (error) { notify(readableError(error)); }
+  } else if (button.dataset.action === 'move-selected-inline') {
+    const projectName = document.querySelector('#batch-project-inline')?.value;
+    if (!projectName || !selectedInboxItems.size) return;
+    try {
+      await invoke('move_inbox_items', { ids: [...selectedInboxItems], projectName });
+      selectedInboxItems.clear();
+      await refreshInbox({ quiet: true });
+      notify(`已移动到“${projectName}”`);
+    } catch (error) { notify(readableError(error)); }
+  } else if (button.dataset.action === 'save-inbox-inspector') {
+    const id = window.ClipCargoWorkspace.ui.inbox.activeId;
+    const item = state.items.find((entry) => entry.id === id);
+    const draft = item && window.ClipCargoWorkspace.ensureInboxDraft(item, preferences);
+    if (!item || !draft) return;
+    try {
+      await invoke('update_inbox_details', { id, displayTitle: draft.title, projectName: draft.projectName });
+      draft.dirty = false;
+      await refreshInbox({ quiet: true });
+      notify('名称与项目已保存');
+    } catch (error) { notify(readableError(error)); }
+  } else if (button.dataset.inboxPreset) {
+    const item = state.items.find((entry) => entry.id === window.ClipCargoWorkspace.ui.inbox.activeId);
+    const draft = item && window.ClipCargoWorkspace.ensureInboxDraft(item, preferences);
+    if (!draft) return;
+    draft.preset = button.dataset.inboxPreset;
+    if (draft.preset === 'audio') draft.saveSubtitles = false;
+    render();
+  } else if (button.dataset.action === 'download-inspector') {
+    await submitInspectorDownload();
+  } else if (button.dataset.action === 'open-inbox-login') {
+    state.view = 'browser';
+    state.settingsSection = 'extension';
+    localStorage.setItem('clipcargo:last-view', state.view);
+    localStorage.setItem('clipcargo:settings-section', state.settingsSection);
+    render();
+    main.querySelector('#auth-settings')?.scrollIntoView({ block: 'center' });
+  } else if (button.dataset.libraryInspect) {
+    const [assetType, assetIdRaw] = button.dataset.libraryInspect.split(':');
+    const assetId = Number(assetIdRaw);
+    window.ClipCargoWorkspace.ui.library.activeKey = button.dataset.libraryInspect;
+    window.ClipCargoWorkspace.resetLibrarySubtitles();
+    state.pendingLibraryRemoval = null;
+    state.pendingLibraryImpact = null;
+    render();
+    void loadLibrarySubtitleIndex(assetType, assetId);
+  } else if (button.dataset.action === 'save-library-inspector') {
+    const [assetType, assetIdRaw] = String(window.ClipCargoWorkspace.ui.library.activeKey || '').split(':');
+    const assetId = Number(assetIdRaw);
+    const asset = window.ClipCargoViews.library.completedAssets(state).find((entry) => entry.assetType === assetType && entry.assetId === assetId);
+    const draft = window.ClipCargoWorkspace.ensureLibraryDraft(asset);
+    const title = draft?.title || document.querySelector('#library-inspector-title')?.value || '';
+    const projectName = draft?.projectName || document.querySelector('#library-inspector-project')?.value || '未分类';
+    if (!assetType || !Number.isFinite(assetId)) return;
+    try {
+      await invoke('update_media_details', { assetType, assetId, title, projectName });
+      if (draft) draft.dirty = false;
+      await refreshInbox({ quiet: true });
+      notify('素材信息已保存');
+    } catch (error) { notify(readableError(error)); }
+  } else if (button.dataset.action === 'cancel-install-component') {
+    closeComponentInstall();
+  } else if (button.dataset.action === 'confirm-install-component') {
+    state.pendingComponentInstallKind = button.dataset.componentKind;
+    pendingComponentInstall = button.dataset.componentKind;
+    await confirmComponentInstall();
+  } else if (button.dataset.subtitleSeconds) {
+    const [assetType, assetIdRaw] = String(window.ClipCargoWorkspace.ui.library.activeKey || '').split(':');
+    openStudio(assetType, Number(assetIdRaw), Number(button.dataset.subtitleSeconds || 0));
+  } else if (button.dataset.pageScope) {
     const amount = button.dataset.pageDirection === 'previous' ? -1 : 1;
     if (button.dataset.pageScope === 'inbox') state.inboxPage += amount;
     else if (button.dataset.pageScope === 'tasks') state.taskPage += amount;
@@ -2243,9 +2696,9 @@ document.addEventListener('click', async (event) => {
       await refreshInbox({ quiet: true });
     } catch (error) { notify(readableError(error)); button.disabled = false; }
   } else if (button.dataset.playId) {
-    await openPlayer(button.dataset.playType, Number(button.dataset.playId));
+    openStudio(button.dataset.playType, Number(button.dataset.playId));
   } else if (button.dataset.process) {
-    openProcess(Number(button.dataset.process));
+    openStudio('original', Number(button.dataset.process));
   } else if (button.dataset.revealId) {
     try { await invoke('reveal_media', { assetType: button.dataset.revealType, assetId: Number(button.dataset.revealId) }); }
     catch (error) { notify(readableError(error)); }
@@ -2279,6 +2732,7 @@ document.addEventListener('click', async (event) => {
       state.pendingLibraryImpact = await invoke('media_removal_impact', { assetType: button.dataset.removeLibraryType, assetId: Number(button.dataset.removeLibraryId) });
       state.pendingLibraryRemoval = `${button.dataset.removeLibraryType}:${button.dataset.removeLibraryId}`;
       render();
+      requestAnimationFrame(() => main.querySelector('.inline-confirm-panel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
     } catch (error) { notify(readableError(error)); }
   } else if (button.hasAttribute('data-cancel-library-removal')) {
     state.pendingLibraryRemoval = null;
@@ -2303,6 +2757,7 @@ document.addEventListener('click', async (event) => {
   } else if (button.dataset.remove) {
     state.pendingInboxRemoval = Number(button.dataset.remove);
     render();
+    requestAnimationFrame(() => main.querySelector('.inline-confirm-panel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
   } else if (button.hasAttribute('data-cancel-inbox-remove')) {
     state.pendingInboxRemoval = null;
     render();
@@ -2341,15 +2796,45 @@ main.addEventListener('keydown', (event) => {
 });
 
 main.addEventListener('input', (event) => {
-  if (event.target.id !== 'library-search') return;
-  state.libraryQuery = event.target.value;
-  state.libraryPage = 1;
-  clearTimeout(librarySearchTimer);
-  librarySearchTimer = setTimeout(() => {
-    render();
-    const search = document.querySelector('#library-search');
-    if (search) { search.focus(); search.setSelectionRange(search.value.length, search.value.length); }
-  }, 150);
+  if (event.target.id === 'library-search') {
+    state.libraryQuery = event.target.value;
+    state.libraryPage = 1;
+    clearTimeout(librarySearchTimer);
+    librarySearchTimer = setTimeout(() => {
+      const snapshot = window.ClipCargoWorkspace.captureInteraction(document);
+      render();
+      window.ClipCargoWorkspace.restoreInteraction(snapshot);
+    }, 150);
+  } else if (event.target.id === 'inspector-inbox-title') {
+    const item = state.items.find((entry) => entry.id === window.ClipCargoWorkspace.ui.inbox.activeId);
+    const draft = item && window.ClipCargoWorkspace.ensureInboxDraft(item, preferences);
+    if (draft) { draft.title = event.target.value; draft.dirty = true; }
+  } else if (event.target.id === 'subtitle-search') {
+    window.ClipCargoWorkspace.ui.library.subtitleQuery = event.target.value;
+    renderLibrarySubtitleResults();
+  } else if (event.target.id === 'library-inspector-title') {
+    const key = String(window.ClipCargoWorkspace.ui.library.activeKey || '');
+    const [assetType, assetIdRaw] = key.split(':');
+    const assetId = Number(assetIdRaw);
+    const asset = window.ClipCargoViews.library.completedAssets(state).find((entry) => entry.assetType === assetType && entry.assetId === assetId);
+    const draft = window.ClipCargoWorkspace.ensureLibraryDraft(asset);
+    if (draft) { draft.title = event.target.value; draft.dirty = true; }
+  }
+});
+
+document.addEventListener('input', (event) => {
+  if (event.target.id !== 'drawer-url-input') return;
+  const drawer = window.ClipCargoWorkspace.ui.drawer;
+  drawer.draft.links = event.target.value;
+  const projectName = document.querySelector('#drawer-project')?.value || preferredProject();
+  const analysis = analyzeLinks(projectName, event.target.value);
+  const summary = document.querySelector('#drawer-url-summary');
+  const submit = document.querySelector('#drawer-import-links');
+  if (summary) {
+    summary.textContent = analysis.inputPresent ? `可加入 ${analysis.valid.length} · 重复 ${analysis.duplicates.length} · 无效 ${analysis.invalid.length}${analysis.overLimit ? ' · 超过 100 条上限' : ''}` : '自动提取 HTTP(S) 链接，单次最多 100 条';
+    summary.classList.toggle('has-error', Boolean(analysis.invalid.length || analysis.overLimit));
+  }
+  if (submit) submit.disabled = analysis.overLimit || analysis.valid.length === 0;
 });
 main.addEventListener('change', (event) => {
   if (event.target.matches('[data-select-item]')) {
@@ -2376,6 +2861,16 @@ main.addEventListener('change', (event) => {
     else visibleIds.forEach((id) => selectedInboxItems.delete(id));
     state.pendingBatchRemoval = false;
     render();
+  } else if (event.target.id === 'batch-project-inline') {
+    const projectName = event.target.value;
+    if (!projectName || !selectedInboxItems.size) return;
+    invoke('move_inbox_items', { ids: [...selectedInboxItems], projectName })
+      .then(() => {
+        selectedInboxItems.clear();
+        return refreshInbox({ quiet: true });
+      })
+      .then(() => notify(`已移动到“${projectName}”`))
+      .catch((error) => notify(readableError(error)));
   } else if (event.target.id === 'library-sort') { state.librarySort = event.target.value; state.libraryPage = 1; render(); }
   else if (event.target.id === 'library-project') { state.libraryProject = event.target.value; state.libraryPage = 1; render(); }
   else if (event.target.id === 'library-kind') { state.libraryKind = event.target.value; state.libraryPage = 1; render(); }
@@ -2389,6 +2884,33 @@ main.addEventListener('change', (event) => {
   else if (event.target.id === 'setting-download-quality') { preferences.downloadQuality = event.target.value; savePreferences(); }
   else if (event.target.id === 'setting-save-subtitles') { preferences.saveSubtitles = event.target.checked; savePreferences(); }
   else if (event.target.id === 'setting-auth-browser') { state.authBrowserChoice = event.target.value; render(); }
+  else if (event.target.id === 'inspector-inbox-project') {
+    const item = state.items.find((entry) => entry.id === window.ClipCargoWorkspace.ui.inbox.activeId);
+    const draft = item && window.ClipCargoWorkspace.ensureInboxDraft(item, preferences);
+    if (draft) { draft.projectName = event.target.value; draft.dirty = true; }
+  }
+  else if (event.target.id === 'library-inspector-project') {
+    const [assetType, assetIdRaw] = String(window.ClipCargoWorkspace.ui.library.activeKey || '').split(':');
+    const assetId = Number(assetIdRaw);
+    const asset = window.ClipCargoViews.library.completedAssets(state).find((entry) => entry.assetType === assetType && entry.assetId === assetId);
+    const draft = window.ClipCargoWorkspace.ensureLibraryDraft(asset);
+    if (draft) { draft.projectName = event.target.value; draft.dirty = true; }
+  }
+  else if (event.target.id === 'inbox-inspector-quality') {
+    const item = state.items.find((entry) => entry.id === window.ClipCargoWorkspace.ui.inbox.activeId);
+    const draft = item && window.ClipCargoWorkspace.ensureInboxDraft(item, preferences);
+    if (draft) draft.quality = event.target.value;
+  }
+  else if (event.target.id === 'inbox-inspector-subtitles' || event.target.id === 'inbox-inspector-cover' || event.target.id === 'inbox-inspector-source-record' || event.target.id === 'inbox-inspector-retain-source') {
+    const item = state.items.find((entry) => entry.id === window.ClipCargoWorkspace.ui.inbox.activeId);
+    const draft = item && window.ClipCargoWorkspace.ensureInboxDraft(item, preferences);
+    if (draft) {
+      if (event.target.id === 'inbox-inspector-subtitles') draft.saveSubtitles = event.target.checked;
+      else if (event.target.id === 'inbox-inspector-cover') draft.saveCover = event.target.checked;
+      else if (event.target.id === 'inbox-inspector-source-record') draft.saveSourceRecord = event.target.checked;
+      else draft.retainSource = event.target.checked;
+    }
+  }
 });
 
 document.querySelector('#dialog-close').addEventListener('click', closeDialog);
@@ -2500,14 +3022,14 @@ projectList.addEventListener('click', async (event) => {
     } catch (error) { projectError.textContent = readableError(error); }
   }
 });
-document.querySelector('#player-close').addEventListener('click', closePlayer);
-document.querySelector('#playback-rate').addEventListener('change', (event) => { mediaPlayer.playbackRate = Number(event.target.value); });
-document.querySelector('#external-player').addEventListener('click', async () => {
+document.querySelector('#player-close')?.addEventListener('click', closePlayer);
+document.querySelector('#playback-rate')?.addEventListener('change', (event) => { mediaPlayer.playbackRate = Number(event.target.value); });
+document.querySelector('#external-player')?.addEventListener('click', async () => {
   if (activePlayerAsset == null) return;
   try { await invoke('open_media_external', activePlayerAsset); }
   catch (error) { playerError.textContent = readableError(error); }
 });
-playerConvert.addEventListener('click', async () => {
+playerConvert?.addEventListener('click', async () => {
   if (activePlayerAsset?.assetType !== 'original' || !activePlayerAsset.video) return;
   playerConvert.disabled = true;
   playerConvert.textContent = '正在创建…';
@@ -2527,9 +3049,9 @@ playerConvert.addEventListener('click', async () => {
     playerConvert.textContent = '生成兼容副本';
   }
 });
-document.querySelector('#process-close').addEventListener('click', closeProcess);
-document.querySelector('#process-cancel').addEventListener('click', closeProcess);
-document.querySelector('#process-submit').addEventListener('click', submitProcess);
+document.querySelector('#process-close')?.addEventListener('click', closeProcess);
+document.querySelector('#process-cancel')?.addEventListener('click', closeProcess);
+document.querySelector('#process-submit')?.addEventListener('click', submitProcess);
 document.querySelector('#download-close').addEventListener('click', closeDownload);
 document.querySelector('#download-cancel').addEventListener('click', closeDownload);
 document.querySelector('#download-submit').addEventListener('click', submitDownload);
@@ -2587,11 +3109,11 @@ document.querySelector('#inbox-detail-form').addEventListener('submit', async (e
     notify('条目详情已保存');
   } catch (error) { inboxDetailError.textContent = readableError(error); }
 });
-processBackdrop.querySelectorAll('[data-process-mode]').forEach((button) => {
+processBackdrop?.querySelectorAll('[data-process-mode]').forEach((button) => {
   button.setAttribute('role', 'radio');
   button.addEventListener('click', () => selectProcessMode(button.dataset.processMode));
 });
-processMode.addEventListener('change', () => {
+processMode?.addEventListener('change', () => {
   const hidden = processMode.value !== 'clip';
   document.querySelector('#clip-range').hidden = hidden;
   document.querySelector('#clip-duration').hidden = hidden;
@@ -2612,18 +3134,18 @@ processMode.addEventListener('change', () => {
     if (result.valid && processError.textContent === '请修正标出的时间范围。') processError.textContent = '';
     document.querySelector('#process-submit').disabled = !state.components?.ffmpegReady || !result.valid;
   };
-  control.addEventListener('input', syncClipState);
-  control.addEventListener('change', syncClipState);
+  control?.addEventListener('input', syncClipState);
+  control?.addEventListener('change', syncClipState);
 });
-[cropX, cropY, cropZoom].forEach((control) => control.addEventListener('input', updateCropMask));
-cropPreview.addEventListener('loadedmetadata', updateCropMask);
+[cropX, cropY, cropZoom].filter(Boolean).forEach((control) => control.addEventListener('input', updateCropMask));
+cropPreview?.addEventListener('loadedmetadata', updateCropMask);
 window.addEventListener('resize', updateCropMask);
-cropMask.addEventListener('pointerdown', (event) => {
+cropMask?.addEventListener('pointerdown', (event) => {
   cropDragging = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: Number(cropX.value), y: Number(cropY.value) };
   cropMask.setPointerCapture(event.pointerId);
   event.preventDefault();
 });
-cropMask.addEventListener('pointermove', (event) => {
+cropMask?.addEventListener('pointermove', (event) => {
   if (!cropDragging || cropDragging.pointerId !== event.pointerId) return;
   const availableX = Math.max(1, cropPreview.clientWidth - cropMask.offsetWidth);
   const availableY = Math.max(1, cropPreview.clientHeight - cropMask.offsetHeight);
@@ -2631,9 +3153,9 @@ cropMask.addEventListener('pointermove', (event) => {
   cropY.value = String(Math.max(0, Math.min(100, cropDragging.y + (event.clientY - cropDragging.startY) / availableY * 100)));
   updateCropMask();
 });
-cropMask.addEventListener('pointerup', (event) => { if (cropDragging?.pointerId === event.pointerId) cropDragging = null; });
-cropMask.addEventListener('pointercancel', () => { cropDragging = null; });
-cropMask.addEventListener('keydown', (event) => {
+cropMask?.addEventListener('pointerup', (event) => { if (cropDragging?.pointerId === event.pointerId) cropDragging = null; });
+cropMask?.addEventListener('pointercancel', () => { cropDragging = null; });
+cropMask?.addEventListener('keydown', (event) => {
   const delta = event.shiftKey ? 5 : 1;
   if (event.key === 'ArrowLeft') cropX.value = String(Math.max(0, Number(cropX.value) - delta));
   else if (event.key === 'ArrowRight') cropX.value = String(Math.min(100, Number(cropX.value) + delta));
@@ -2645,7 +3167,7 @@ cropMask.addEventListener('keydown', (event) => {
 downloadPreset.addEventListener('change', updateDownloadPresetFields);
 downloadSubtitles.addEventListener('change', renderDownloadSubtitleOptions);
 downloadQuality.addEventListener('change', applyDownloadPreflight);
-mediaPlayer.addEventListener('error', () => {
+mediaPlayer?.addEventListener('error', () => {
   playerStatus.hidden = true;
   mediaPlayer.pause();
   mediaPlayer.controls = false;
@@ -2654,22 +3176,22 @@ mediaPlayer.addEventListener('error', () => {
     : '当前环境无法预览此编码，可使用系统播放器打开。';
   playerConvert.hidden = !(activePlayerAsset?.assetType === 'original' && activePlayerAsset.video);
 });
-mediaPlayer.addEventListener('loadedmetadata', () => {
+mediaPlayer?.addEventListener('loadedmetadata', () => {
   playerStatus.hidden = true;
   mediaPlayer.controls = true;
   const saved = Number(localStorage.getItem(playerPositionKey));
   if (Number.isFinite(saved) && saved > 0 && saved < mediaPlayer.duration - 2) mediaPlayer.currentTime = saved;
 });
-mediaPlayer.addEventListener('timeupdate', () => {
+mediaPlayer?.addEventListener('timeupdate', () => {
   if (Date.now() - lastPositionSavedAt < 2000) return;
   lastPositionSavedAt = Date.now();
   savePlayerPosition();
 });
-mediaPlayer.addEventListener('ended', savePlayerPosition);
+mediaPlayer?.addEventListener('ended', savePlayerPosition);
 backdrop.addEventListener('click', (event) => { if (event.target === backdrop) closeDialog(); });
 projectBackdrop.addEventListener('click', (event) => { if (event.target === projectBackdrop) closeProjectDialog(); });
-playerBackdrop.addEventListener('click', (event) => { if (event.target === playerBackdrop) closePlayer(); });
-processBackdrop.addEventListener('click', (event) => { if (event.target === processBackdrop) closeProcess(); });
+playerBackdrop?.addEventListener('click', (event) => { if (event.target === playerBackdrop) closePlayer(); });
+processBackdrop?.addEventListener('click', (event) => { if (event.target === processBackdrop) closeProcess(); });
 downloadBackdrop.addEventListener('click', (event) => { if (event.target === downloadBackdrop) closeDownload(); });
 batchMoveBackdrop.addEventListener('click', (event) => { if (event.target === batchMoveBackdrop) closeBatchMove(); });
 mediaEditBackdrop.addEventListener('click', (event) => { if (event.target === mediaEditBackdrop) closeMediaEdit(); });
@@ -2689,8 +3211,8 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     const openActionMenus = document.querySelectorAll('details.media-more[open]');
     if (openActionMenus.length) { closeActionMenus(); return; }
-    if (!playerBackdrop.hidden && document.fullscreenElement) return;
-    if (state.relinkTarget) { state.relinkTarget = null; dropOverlay.hidden = true; } else if (!playerBackdrop.hidden) closePlayer(); else if (!processBackdrop.hidden) closeProcess(); else if (!downloadBackdrop.hidden) closeDownload(); else if (!inboxDetailBackdrop.hidden) closeInboxDetail(); else if (!localImportBackdrop.hidden) closeLocalImport(); else if (!componentInstallBackdrop.hidden) closeComponentInstall(); else if (!batchMoveBackdrop.hidden) closeBatchMove(); else if (!mediaEditBackdrop.hidden) closeMediaEdit(); else if (!projectBackdrop.hidden) closeProjectDialog(); else if (!backdrop.hidden) closeDialog(); else if (state.view === 'inbox' && selectedInboxItems.size) { selectedInboxItems.clear(); state.pendingBatchRemoval = false; render(); notify('已清除选择'); }
+    if (playerBackdrop && !playerBackdrop.hidden && document.fullscreenElement) return;
+    if (state.relinkTarget) { state.relinkTarget = null; dropOverlay.hidden = true; } else if (playerBackdrop && !playerBackdrop.hidden) closePlayer(); else if (processBackdrop && !processBackdrop.hidden) closeProcess(); else if (!downloadBackdrop.hidden) closeDownload(); else if (!inboxDetailBackdrop.hidden) closeInboxDetail(); else if (!localImportBackdrop.hidden) closeLocalImport(); else if (!componentInstallBackdrop.hidden) closeComponentInstall(); else if (!batchMoveBackdrop.hidden) closeBatchMove(); else if (!mediaEditBackdrop.hidden) closeMediaEdit(); else if (!projectBackdrop.hidden) closeProjectDialog(); else if (!backdrop.hidden) closeDialog(); else if (state.view === 'inbox' && selectedInboxItems.size) { selectedInboxItems.clear(); state.pendingBatchRemoval = false; render(); notify('已清除选择'); }
     return;
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a' && !modal && state.view === 'inbox' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) {
@@ -2704,7 +3226,7 @@ document.addEventListener('keydown', (event) => {
   // Native and custom controls must keep their own Space/arrow-key behavior.
   // Without this guard, choosing a playback rate or operating a focused button
   // can also pause or seek the video when the event bubbles to the document.
-  if (playerBackdrop.hidden || isPlayerShortcutTarget(event.target)) return;
+  if (!playerBackdrop || playerBackdrop.hidden || isPlayerShortcutTarget(event.target)) return;
   if (event.key === ' ') { if (event.repeat) return; event.preventDefault(); mediaPlayer.paused ? mediaPlayer.play().catch(() => {}) : mediaPlayer.pause(); }
   else if (event.key === 'ArrowLeft') { event.preventDefault(); mediaPlayer.currentTime = Math.max(0, mediaPlayer.currentTime - 5); }
   else if (event.key === 'ArrowRight') { event.preventDefault(); mediaPlayer.currentTime = Math.min(mediaPlayer.duration || Infinity, mediaPlayer.currentTime + 5); }

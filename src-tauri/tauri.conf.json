@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ClipCargo",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "identifier": "net.clipcargo.desktop",
   "build": {
     "beforeDevCommand": {
@@ -22,12 +22,12 @@
       {
         "label": "main",
         "title": "ClipCargo",
-        "width": 920,
-        "height": 600,
-        "minWidth": 780,
-        "minHeight": 500,
+        "width": 1060,
+        "height": 680,
+        "minWidth": 920,
+        "minHeight": 580,
         "resizable": true,
-        "decorations": true,
+        "decorations": false,
         "visible": false
       }
     ],

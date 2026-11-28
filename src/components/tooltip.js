@@ -41,7 +41,7 @@
 
   function hide(target = activeTarget) {
     if (target && target === activeTarget && restoreAria) target.setAttribute('aria-describedby', restoreAria);
-    else if (target === activeTarget) target.removeAttribute('aria-describedby');
+    else if (target && target === activeTarget) target.removeAttribute('aria-describedby');
     if (tooltip) tooltip.hidden = true;
     activeTarget = null;
     restoreAria = null;

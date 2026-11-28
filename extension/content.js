@@ -191,6 +191,7 @@
     marker.type = 'button';
     marker.title = '用 ClipCargo 收集这个视频';
     marker.setAttribute('aria-label', '用 ClipCargo 收集这个视频');
+    if (!chrome.runtime?.id) return;
     const logo = document.createElement('img');
     logo.src = chrome.runtime.getURL('icons/32.png');
     logo.alt = '';
